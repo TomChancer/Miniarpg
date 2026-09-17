@@ -1,4 +1,4 @@
-const CACHE_NAME = 'miniarpg-v2';
+const CACHE_NAME = 'miniarpg-v3';
 const APP_SHELL = [
   './',
   './index.html',
@@ -8,9 +8,11 @@ const APP_SHELL = [
   './src/entities.js',
   './src/combat.js',
   './src/storage.js',
-  './src/currency.js',
   './src/gems.js',
   './src/npcs.js',
+  './src/grid.js',
+  './src/equipment.js',
+  './src/inventory.js',
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png',
   './assets/icons/favicon-32.png',

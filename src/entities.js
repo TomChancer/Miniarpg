@@ -7,8 +7,6 @@ export class Character {
     this.hp = this.maxHp;
     this.damage = 8;
     this.range = 220;
-    this.attacksPerSecond = 2;
-    this.attackTimer = 0;
   }
 
   isAlive() {

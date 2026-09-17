@@ -1,7 +1,11 @@
 import { Character, Enemy, Projectile, buildWave } from './entities.js';
-import { getEquippedGem } from './gems.js';
+import { getGemById } from './gems.js';
+import { getSocketedGemDefIds, getSpeedMultiplier } from './inventory.js';
 
 const WAVE_CLEAR_PAUSE = 1.4;
+
+// Always active regardless of gear, so combat is playable before any purchases.
+const BASELINE_SKILL = { projectiles: 1, pierce: 0, speed: 2 };
 
 export class CombatScene {
   constructor(canvas, callbacks) {
@@ -24,8 +28,14 @@ export class CombatScene {
     this.spawnQueue = buildWave(this.wave);
     this.spawnTimer = 0.5;
     this.waveClearTimer = 0;
-    this.gem = getEquippedGem();
     this.currencyEarned = 0;
+
+    this.speedMultiplier = getSpeedMultiplier();
+    const skillDefs = [BASELINE_SKILL, ...getSocketedGemDefIds().map((id) => getGemById(id))];
+    this.skills = skillDefs.map((def) => ({
+      def,
+      timer: Math.random() * (1 / (def.speed * this.speedMultiplier)),
+    }));
 
     this.callbacks.onWaveChange(this.wave);
     this.callbacks.onHpChange(this.character.hp, this.character.maxHp);
@@ -118,17 +128,19 @@ export class CombatScene {
       }
     }
 
-    // --- character auto-attack ---
-    ch.attackTimer -= dt;
-    if (ch.attackTimer <= 0) {
-      const targets = this._nearestEnemiesInRange(ch, this.gem.projectiles);
-      if (targets.length > 0) {
-        for (const target of targets) {
-          this.projectiles.push(
-            new Projectile(ch.x, ch.y, target.x, target.y, ch.damage, this.gem.pierce)
-          );
+    // --- character auto-attack: every socketed skill fires independently ---
+    for (const skill of this.skills) {
+      skill.timer -= dt;
+      if (skill.timer <= 0) {
+        const targets = this._nearestEnemiesInRange(ch, skill.def.projectiles);
+        if (targets.length > 0) {
+          for (const target of targets) {
+            this.projectiles.push(
+              new Projectile(ch.x, ch.y, target.x, target.y, ch.damage, skill.def.pierce)
+            );
+          }
+          skill.timer = 1 / (skill.def.speed * this.speedMultiplier);
         }
-        ch.attackTimer = 1 / ch.attacksPerSecond;
       }
     }
 

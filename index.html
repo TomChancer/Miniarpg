@@ -22,7 +22,10 @@
       <div id="currency-display" class="currency-display">0 <span class="currency-name">Cinder Shards</span></div>
     </div>
     <div id="npc-list" class="npc-list"></div>
-    <button id="town-set-out" class="primary">Set Out</button>
+    <div class="town-actions">
+      <button id="town-set-out" class="primary">Set Out</button>
+      <button id="town-inventory" class="secondary">Inventory</button>
+    </div>
     <div id="best-wave">Best wave: 0</div>
   </section>
 
@@ -35,6 +38,37 @@
     </div>
   </section>
 
+  <section id="inventory-screen" class="screen">
+    <button id="inventory-back" class="back-btn">&larr; Town</button>
+    <div class="inventory-header">
+      <h1>Inventory</h1>
+      <div id="inv-currency-display" class="currency-display">0 <span class="currency-name">Cinder Shards</span></div>
+    </div>
+
+    <div class="paperdoll">
+      <div class="equip-slot" data-slot="helmet">
+        <div class="equip-slot-label">Helmet</div>
+        <div class="equip-slot-body">Empty</div>
+      </div>
+      <div class="equip-slot" data-slot="chest">
+        <div class="equip-slot-label">Chest</div>
+        <div class="equip-slot-body">Empty</div>
+      </div>
+      <div class="equip-slot" data-slot="boots">
+        <div class="equip-slot-label">Boots</div>
+        <div class="equip-slot-body">Empty</div>
+      </div>
+    </div>
+
+    <div class="inv-tabs">
+      <button class="inv-tab active" data-tab="bag">Bag</button>
+      <button class="inv-tab" data-tab="gems">Gems</button>
+    </div>
+
+    <div id="bag-grid" class="item-grid"></div>
+    <div id="gem-grid" class="item-grid" style="display:none;"></div>
+  </section>
+
   <div id="shop-modal" class="modal">
     <div class="modal-card">
       <div class="modal-header">
@@ -42,7 +76,17 @@
         <button id="shop-close" class="icon-btn">&times;</button>
       </div>
       <div id="shop-balance" class="shop-balance">0 Cinder Shards</div>
-      <div id="gem-list" class="gem-list"></div>
+      <div id="shop-items" class="gem-list"></div>
+    </div>
+  </div>
+
+  <div id="item-modal" class="modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="item-modal-title">Item</h2>
+        <button id="item-modal-close" class="icon-btn">&times;</button>
+      </div>
+      <div id="item-modal-body"></div>
     </div>
   </div>
 
