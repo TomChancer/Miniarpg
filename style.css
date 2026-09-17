@@ -130,16 +130,47 @@ html, body {
 .npc-name { font-weight: 600; color: var(--text); }
 .npc-title { font-size: 0.78rem; color: var(--text-dim); }
 
-.town-actions { display: flex; gap: 10px; }
+.town-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
 
 button.secondary {
   background: var(--panel);
   border: 1px solid var(--gold);
   color: var(--gold);
   border-radius: 8px;
-  padding: 12px 22px;
-  font-size: 1rem;
+  padding: 12px 18px;
+  font-size: 0.95rem;
   font-weight: 600;
+}
+
+.progression-bar {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.progression-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.progression-top #level-label { color: var(--gold); font-weight: 600; }
+
+#xp-bar-outer {
+  height: 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #241d38;
+  overflow: hidden;
+}
+
+#xp-bar-inner {
+  height: 100%;
+  width: 0%;
+  background: var(--mana);
+  transition: width 0.2s linear;
 }
 
 button.secondary:active { transform: scale(0.97); }
@@ -149,6 +180,12 @@ button.secondary:active { transform: scale(0.97); }
   padding: env(safe-area-inset-top, 20px) 16px 20px;
   gap: 12px;
   overflow-y: auto;
+}
+
+/* --- Talents screen --- */
+#talents-screen {
+  padding: env(safe-area-inset-top, 20px) 16px 20px;
+  gap: 12px;
 }
 
 .inventory-header {
@@ -272,6 +309,38 @@ button.secondary:active { transform: scale(0.97); }
 }
 
 .gem-picker-option { display: block; width: 100%; margin-bottom: 8px; text-align: left; }
+
+/* --- Talents screen --- */
+.talent-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.reset-btn {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--hp-low);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 0.75rem;
+}
+
+.talent-viewport {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #0c0914;
+  -webkit-overflow-scrolling: touch;
+}
+
+#talent-canvas {
+  display: block;
+  touch-action: pan-x pan-y;
+}
 
 .shop-section-title {
   color: var(--text-dim);

@@ -21,6 +21,20 @@ import {
 import { GEMS, getGemById } from './gems.js';
 import { EQUIPMENT_ITEMS, getEquipmentDef, SLOTS } from './equipment.js';
 import { getAvailableNpcs } from './npcs.js';
+import {
+  getLevel,
+  getXp,
+  xpToNext,
+  addXp,
+  getAvailablePoints,
+  getAllocatedNodes,
+  isAllocated,
+  canAllocate,
+  allocateNode,
+  resetTree,
+  awardMappingPoint,
+} from './progression.js';
+import { getTree } from './talentTrees.js';
 
 const STAT_LABELS = { strength: 'STR', vitality: 'VIT', intelligence: 'INT', dexterity: 'DEX', rarity: 'RAR' };
 
@@ -37,8 +51,10 @@ const screens = {
   town: document.getElementById('town-screen'),
   map: document.getElementById('map-screen'),
   inventory: document.getElementById('inventory-screen'),
+  talents: document.getElementById('talents-screen'),
   combat: document.getElementById('combat-screen'),
   results: document.getElementById('results-screen'),
+  victory: document.getElementById('victory-screen'),
 };
 
 function showScreen(name) {
@@ -70,9 +86,26 @@ const itemModalBody = document.getElementById('item-modal-body');
 const bagGridEl = document.getElementById('bag-grid');
 const gemGridEl = document.getElementById('gem-grid');
 const statsRowEl = document.getElementById('stats-row');
+const levelLabel = document.getElementById('level-label');
+const pointsLabel = document.getElementById('points-label');
+const xpBarInner = document.getElementById('xp-bar-inner');
+const talentPointsLabel = document.getElementById('talent-points-label');
+const talentViewport = document.getElementById('talent-tree-viewport');
+const talentCanvas = document.getElementById('talent-canvas');
+const talentModal = document.getElementById('talent-modal');
+const talentModalTitle = document.getElementById('talent-modal-title');
+const talentModalBody = document.getElementById('talent-modal-body');
+const resultXpEl = document.getElementById('result-xp');
+const victoryXpEl = document.getElementById('victory-xp');
+const victoryEarnedEl = document.getElementById('victory-earned');
 
 let scene = null;
 let currentModalItem = null;
+let activeTalentTree = 'player';
+let hasCenteredTalentView = false;
+
+const TREE_CANVAS_SIZE = 800;
+const TREE_CENTER = TREE_CANVAS_SIZE / 2;
 
 function refreshBestWave() {
   bestWaveEl.textContent = `Best wave: ${getBestWave()}`;
@@ -97,8 +130,8 @@ function bankCurrencyEarnings(earned) {
   }
 }
 
-function renderEarnedChips(earned) {
-  resultEarnedEl.innerHTML = Object.values(CURRENCIES)
+function renderCurrencyChipsInto(el, earned) {
+  el.innerHTML = Object.values(CURRENCIES)
     .map(
       (c) => `
         <span class="currency-chip">
@@ -108,6 +141,15 @@ function renderEarnedChips(earned) {
       `
     )
     .join('');
+}
+
+function refreshProgressionBar() {
+  const level = getLevel();
+  const xp = getXp();
+  const need = xpToNext(level);
+  levelLabel.textContent = `Level ${level}`;
+  pointsLabel.textContent = `${getAvailablePoints('player')} Player · ${getAvailablePoints('mapping')} Mapping`;
+  xpBarInner.style.width = `${Math.min(100, (xp / need) * 100)}%`;
 }
 
 function refreshCurrencyDisplay() {
@@ -468,6 +510,160 @@ function openGemPicker(slot, socketIndex) {
   });
 }
 
+// --- talents ---
+
+document.querySelectorAll('[data-talent-tab]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-talent-tab]').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeTalentTree = btn.dataset.talentTab;
+    renderTalentScreen();
+  });
+});
+
+function renderTalentScreen() {
+  talentPointsLabel.textContent = `${getAvailablePoints(activeTalentTree)} points available`;
+  drawTalentTree(activeTalentTree);
+}
+
+function drawTalentTree(treeId) {
+  const dpr = window.devicePixelRatio || 1;
+  talentCanvas.width = TREE_CANVAS_SIZE * dpr;
+  talentCanvas.height = TREE_CANVAS_SIZE * dpr;
+  talentCanvas.style.width = `${TREE_CANVAS_SIZE}px`;
+  talentCanvas.style.height = `${TREE_CANVAS_SIZE}px`;
+  const ctx = talentCanvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, TREE_CANVAS_SIZE, TREE_CANVAS_SIZE);
+
+  const tree = getTree(treeId);
+  const allocated = new Set(getAllocatedNodes(treeId));
+  const nodes = Object.values(tree.nodes);
+
+  ctx.lineWidth = 3;
+  const seenEdges = new Set();
+  for (const node of nodes) {
+    for (const connId of node.connections) {
+      const key = [node.id, connId].sort().join('|');
+      if (seenEdges.has(key)) continue;
+      seenEdges.add(key);
+      const other = tree.nodes[connId];
+      const bothAllocated = allocated.has(node.id) && allocated.has(other.id);
+      ctx.strokeStyle = bothAllocated ? 'rgba(216,176,84,0.7)' : 'rgba(255,255,255,0.15)';
+      ctx.beginPath();
+      ctx.moveTo(TREE_CENTER + node.x, TREE_CENTER + node.y);
+      ctx.lineTo(TREE_CENTER + other.x, TREE_CENTER + other.y);
+      ctx.stroke();
+    }
+  }
+
+  for (const node of nodes) {
+    const cx = TREE_CENTER + node.x;
+    const cy = TREE_CENTER + node.y;
+    const isStart = node.id === 'start';
+    const radius = node.keystone ? 22 : isStart ? 18 : 14;
+    const alloc = allocated.has(node.id);
+    const allocable = !alloc && canAllocate(treeId, node.id);
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    if (isStart) ctx.fillStyle = '#d8b054';
+    else if (alloc) ctx.fillStyle = node.keystone ? '#c14fe0' : '#7a6fe0';
+    else if (allocable) ctx.fillStyle = '#3a3252';
+    else ctx.fillStyle = '#211c30';
+    ctx.fill();
+    ctx.strokeStyle = alloc ? '#fff3c4' : allocable ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = node.keystone ? 3 : 2;
+    ctx.stroke();
+  }
+}
+
+function talentNodeAt(treeId, x, y) {
+  const tree = getTree(treeId);
+  for (const node of Object.values(tree.nodes)) {
+    const radius = node.keystone ? 26 : node.id === 'start' ? 22 : 18;
+    const dx = node.x - x;
+    const dy = node.y - y;
+    if (dx * dx + dy * dy <= radius * radius) return node;
+  }
+  return null;
+}
+
+talentCanvas.addEventListener('click', (e) => {
+  const rect = talentCanvas.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width) * TREE_CANVAS_SIZE - TREE_CENTER;
+  const y = ((e.clientY - rect.top) / rect.height) * TREE_CANVAS_SIZE - TREE_CENTER;
+  const node = talentNodeAt(activeTalentTree, x, y);
+  if (node) openTalentModal(activeTalentTree, node);
+});
+
+function openTalentModal(treeId, node) {
+  const alloc = isAllocated(treeId, node.id);
+  const allocable = !alloc && canAllocate(treeId, node.id);
+
+  talentModalTitle.textContent = node.id === 'start' ? 'Start' : node.name;
+
+  let body = '';
+  if (node.id === 'start') {
+    body = `<div class="gem-desc">Your journey begins here. Always active.</div>`;
+  } else if (node.keystone) {
+    body = `<div class="gem-desc">${node.description}</div><div class="gem-desc">Keystone &middot; Cost ${node.cost} points</div>`;
+  } else {
+    body = `<div class="gem-desc">Cost ${node.cost} point</div>`;
+  }
+
+  if (node.id !== 'start') {
+    if (alloc) {
+      body += `<button class="gem-action" disabled>Allocated</button>`;
+    } else {
+      body += `<button class="gem-action" id="talent-allocate" ${allocable ? '' : 'disabled'}>Allocate</button>`;
+      if (!allocable) {
+        const reason = getAvailablePoints(treeId) < node.cost ? 'Not enough points' : 'Connect to an allocated node first';
+        body += `<div class="gem-desc req-unmet">${reason}</div>`;
+      }
+    }
+  }
+
+  talentModalBody.innerHTML = body;
+  talentModal.classList.add('active');
+
+  const allocateBtn = document.getElementById('talent-allocate');
+  if (allocateBtn) {
+    allocateBtn.addEventListener('click', () => {
+      if (allocateNode(treeId, node.id)) {
+        talentModal.classList.remove('active');
+        renderTalentScreen();
+        refreshProgressionBar();
+      }
+    });
+  }
+}
+
+document.getElementById('talent-modal-close').addEventListener('click', () => {
+  talentModal.classList.remove('active');
+});
+
+document.getElementById('talent-reset').addEventListener('click', () => {
+  if (confirm(`Reset your ${activeTalentTree} tree and refund all its points?`)) {
+    resetTree(activeTalentTree);
+    renderTalentScreen();
+    refreshProgressionBar();
+  }
+});
+
+document.getElementById('town-talents').addEventListener('click', () => {
+  showScreen('talents');
+  renderTalentScreen();
+  if (!hasCenteredTalentView) {
+    hasCenteredTalentView = true;
+    requestAnimationFrame(() => {
+      talentViewport.scrollLeft = TREE_CENTER - talentViewport.clientWidth / 2;
+      talentViewport.scrollTop = TREE_CENTER - talentViewport.clientHeight / 2;
+    });
+  }
+});
+document.getElementById('talents-back').addEventListener('click', () => showScreen('town'));
+
 // --- combat ---
 
 function startCombat() {
@@ -484,19 +680,32 @@ function startCombat() {
       manaBarInner.style.width = `${pct}%`;
     },
     onWaveChange(wave) {
-      waveLabel.textContent = `Wave ${wave}`;
+      waveLabel.textContent = wave === 'Boss' ? 'Boss Round' : `Round ${wave}/${scene.mapDef.rounds}`;
     },
     onCurrencyChange(earned) {
       shardsLabel.textContent = `+${earned} Loot`;
     },
-    onDeath(waveReached, currencyEarned) {
+    onDeath(waveReached, currencyEarned, xpEarned) {
       scene.stop();
       const best = reportWaveReached(waveReached);
       bankCurrencyEarnings(currencyEarned);
+      addXp(xpEarned);
       resultWaveEl.textContent = String(waveReached);
       resultBestEl.textContent = String(best);
-      renderEarnedChips(currencyEarned);
+      resultXpEl.textContent = String(Math.round(xpEarned));
+      renderCurrencyChipsInto(resultEarnedEl, currencyEarned);
+      refreshProgressionBar();
       showScreen('results');
+    },
+    onMapComplete(currencyEarned, xpEarned) {
+      scene.stop();
+      bankCurrencyEarnings(currencyEarned);
+      addXp(xpEarned);
+      awardMappingPoint();
+      victoryXpEl.textContent = String(Math.round(xpEarned));
+      renderCurrencyChipsInto(victoryEarnedEl, currencyEarned);
+      refreshProgressionBar();
+      showScreen('victory');
     },
   });
   scene.start();
@@ -519,9 +728,11 @@ document.getElementById('retreat-btn').addEventListener('click', () => {
   if (scene) {
     scene.stop();
     bankCurrencyEarnings(scene.currencyEarned);
+    addXp(scene.xpEarned);
   }
   refreshBestWave();
   refreshCurrencyDisplay();
+  refreshProgressionBar();
   showScreen('town');
 });
 
@@ -531,8 +742,15 @@ document.getElementById('return-btn').addEventListener('click', () => {
   showScreen('town');
 });
 
+document.getElementById('victory-return-btn').addEventListener('click', () => {
+  refreshBestWave();
+  refreshCurrencyDisplay();
+  showScreen('town');
+});
+
 refreshBestWave();
 refreshCurrencyDisplay();
+refreshProgressionBar();
 renderNpcList();
 
 if ('serviceWorker' in navigator) {

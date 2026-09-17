@@ -1,7 +1,7 @@
 const MANA_REGEN_PCT_PER_SEC = 0.08;
 
 export class Character {
-  constructor(x, y, stats) {
+  constructor(x, y, stats, mods = {}) {
     this.x = x;
     this.y = y;
     this.radius = 22;
@@ -13,9 +13,13 @@ export class Character {
     this.dexterity = stats.dexterity;
     this.rarity = stats.rarity;
 
-    this.maxHp = 60 + this.vitality * 8;
+    this.globalDamageMultiplier = mods.damageMultiplier || 1;
+    this.manaRegenMultiplier = mods.manaRegenMultiplier || 1;
+    this.speedMultiplierBonus = mods.speedMultiplierBonus || 0;
+
+    this.maxHp = (60 + this.vitality * 8) * (mods.hpMultiplier || 1);
     this.hp = this.maxHp;
-    this.maxMana = 20 + this.intelligence * 6;
+    this.maxMana = (20 + this.intelligence * 6) * (mods.manaMultiplier || 1);
     this.mana = this.maxMana;
     this.evasionChance = Math.min(0.6, this.dexterity * 0.02);
   }
@@ -25,21 +29,25 @@ export class Character {
   }
 
   damageMultiplier(stat) {
-    return 1 + (this[stat] || 0) * 0.05;
+    return (1 + (this[stat] || 0) * 0.05) * this.globalDamageMultiplier;
   }
 
   regenMana(dt) {
-    this.mana = Math.min(this.maxMana, this.mana + this.maxMana * MANA_REGEN_PCT_PER_SEC * dt);
+    this.mana = Math.min(
+      this.maxMana,
+      this.mana + this.maxMana * MANA_REGEN_PCT_PER_SEC * this.manaRegenMultiplier * dt
+    );
   }
 }
 
 const ENEMY_TYPES = {
-  husk: { radius: 14, speed: 55, color: '#7fae5a', hpMul: 1, dmgMul: 1, value: 1 },
-  elite: { radius: 20, speed: 40, color: '#c76b3f', hpMul: 4.5, dmgMul: 2.2, value: 5 },
+  husk: { radius: 14, speed: 55, color: '#7fae5a', hpMul: 1, dmgMul: 1, value: 1, xpValue: 2 },
+  elite: { radius: 20, speed: 40, color: '#c76b3f', hpMul: 4.5, dmgMul: 2.2, value: 5, xpValue: 10 },
+  boss: { radius: 36, speed: 30, color: '#e0455f', hpMul: 25, dmgMul: 4, value: 20, xpValue: 150 },
 };
 
 export class Enemy {
-  constructor(x, y, wave, type = 'husk') {
+  constructor(x, y, wave, type = 'husk', enemyDamagePct = 0) {
     const def = ENEMY_TYPES[type];
     this.x = x;
     this.y = y;
@@ -49,8 +57,9 @@ export class Enemy {
     this.color = def.color;
     this.maxHp = Math.round((10 + wave * 4) * def.hpMul);
     this.hp = this.maxHp;
-    this.damage = Math.round((3 + wave * 0.8) * def.dmgMul);
+    this.damage = Math.round((3 + wave * 0.8) * def.dmgMul * (1 + enemyDamagePct / 100));
     this.value = def.value;
+    this.xpValue = def.xpValue;
     this.attackCooldown = 0.8;
     this.attackTimer = Math.random() * this.attackCooldown;
   }
@@ -80,8 +89,9 @@ export class Projectile {
   }
 }
 
-export function buildWave(waveNumber) {
-  const count = 4 + Math.floor(waveNumber * 1.8);
+export function buildWave(waveNumber, packSizePct = 0) {
+  const baseCount = 4 + Math.floor(waveNumber * 1.8);
+  const count = Math.max(1, Math.round(baseCount * (1 + packSizePct / 100)));
   const spawnInterval = Math.max(0.35, 1.1 - waveNumber * 0.04);
   const spawnsEliteAt = waveNumber % 5 === 0;
   const queue = [];

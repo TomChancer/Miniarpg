@@ -1,4 +1,4 @@
-const CACHE_NAME = 'miniarpg-v6';
+const CACHE_NAME = 'miniarpg-v7';
 const APP_SHELL = [
   './',
   './index.html',
@@ -13,6 +13,9 @@ const APP_SHELL = [
   './src/grid.js',
   './src/equipment.js',
   './src/inventory.js',
+  './src/progression.js',
+  './src/talentTrees.js',
+  './src/maps.js',
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png',
   './assets/icons/favicon-32.png',

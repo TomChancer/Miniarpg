@@ -18,11 +18,19 @@
 
   <section id="town-screen" class="screen active">
     <h1>Town</h1>
+    <div id="progression-bar" class="progression-bar">
+      <div class="progression-top">
+        <span id="level-label">Level 1</span>
+        <span id="points-label">0 Player &middot; 0 Mapping</span>
+      </div>
+      <div id="xp-bar-outer"><div id="xp-bar-inner"></div></div>
+    </div>
     <div id="currency-display" class="currency-grid"></div>
     <div id="npc-list" class="npc-list"></div>
     <div class="town-actions">
       <button id="town-set-out" class="primary">Set Out</button>
       <button id="town-inventory" class="secondary">Inventory</button>
+      <button id="town-talents" class="secondary">Talents</button>
     </div>
     <div id="best-wave">Best wave: 0</div>
   </section>
@@ -69,6 +77,45 @@
     <div id="gem-grid" class="item-grid" style="display:none;"></div>
   </section>
 
+  <section id="talents-screen" class="screen">
+    <button id="talents-back" class="back-btn">&larr; Town</button>
+    <div class="inventory-header">
+      <h1>Talents</h1>
+    </div>
+
+    <div class="inv-tabs">
+      <button class="inv-tab active" data-talent-tab="player">Player</button>
+      <button class="inv-tab" data-talent-tab="mapping">Mapping</button>
+    </div>
+
+    <div class="talent-toolbar">
+      <span id="talent-points-label">0 points available</span>
+      <button id="talent-reset" class="reset-btn">Reset Tree</button>
+    </div>
+
+    <div id="talent-tree-viewport" class="talent-viewport">
+      <canvas id="talent-canvas"></canvas>
+    </div>
+  </section>
+
+  <div id="talent-modal" class="modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="talent-modal-title">Node</h2>
+        <button id="talent-modal-close" class="icon-btn">&times;</button>
+      </div>
+      <div id="talent-modal-body"></div>
+    </div>
+  </div>
+
+  <section id="victory-screen" class="screen">
+    <h1>Map Cleared</h1>
+    <div class="stat-line">XP earned: <span id="victory-xp" class="stat-value">0</span></div>
+    <div class="stat-line">Mapping point earned: <span id="victory-mapping-point" class="stat-value">+1</span></div>
+    <div id="victory-earned" class="currency-grid"></div>
+    <button id="victory-return-btn" class="primary">Return to Town</button>
+  </section>
+
   <div id="shop-modal" class="modal">
     <div class="modal-card">
       <div class="modal-header">
@@ -108,6 +155,7 @@
     <h1>You Fell</h1>
     <div class="stat-line">Wave reached: <span id="result-wave" class="stat-value">1</span></div>
     <div class="stat-line">Best wave: <span id="result-best" class="stat-value">1</span></div>
+    <div class="stat-line">XP earned: <span id="result-xp" class="stat-value">0</span></div>
     <div id="result-earned" class="currency-grid"></div>
     <button id="return-btn" class="primary">Return to Town</button>
   </section>

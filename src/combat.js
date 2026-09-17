@@ -1,6 +1,8 @@
 import { Character, Enemy, Projectile, buildWave } from './entities.js';
 import { PUNCH_SKILL, getGemById } from './gems.js';
 import { getSocketedGemDefIds, getSpeedMultiplier, getTotalStats, meetsRequirement, CURRENCIES } from './inventory.js';
+import { getPlayerKeystoneMods, getMapModifiers } from './progression.js';
+import { getMapDef } from './maps.js';
 
 const WAVE_CLEAR_PAUSE = 1.4;
 const EVADE_FLASH_DURATION = 0.15;
@@ -18,24 +20,30 @@ export class CombatScene {
     this._frame = this._frame.bind(this);
   }
 
-  start() {
+  start(mapId = 'ashen_grove') {
     window.addEventListener('resize', this._resize);
     this._resize();
 
+    this.mapDef = getMapDef(mapId);
+    this.mapMods = getMapModifiers();
+
     const stats = getTotalStats();
-    this.character = new Character(this.width / 2, this.height * 0.62, stats);
+    const keystoneMods = getPlayerKeystoneMods();
+    this.character = new Character(this.width / 2, this.height * 0.62, stats, keystoneMods);
     this.enemies = [];
     this.projectiles = [];
     this.effects = [];
     this.dash = null;
     this.evadeFlashTimer = 0;
     this.wave = 1;
-    this.spawnQueue = buildWave(this.wave);
+    this.bossPhase = false;
+    this.spawnQueue = buildWave(this.wave, this.mapMods.packSizePct);
     this.spawnTimer = 0.5;
     this.waveClearTimer = 0;
     this.currencyEarned = Object.fromEntries(Object.keys(CURRENCIES).map((id) => [id, 0]));
+    this.xpEarned = 0;
 
-    this.speedMultiplier = getSpeedMultiplier();
+    this.speedMultiplier = getSpeedMultiplier() + this.character.speedMultiplierBonus;
     // Punch is innate; socketed gems only count if their stat requirement is
     // still met (handles gear being unequipped after a gem was socketed) and
     // if the id still resolves to a known gem at all.
@@ -102,22 +110,34 @@ export class CombatScene {
     const ch = this.character;
 
     // --- spawning ---
+    const hasteMul = 1 + this.mapMods.spawnRatePct / 100;
     if (this.spawnQueue.length > 0) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
         const next = this.spawnQueue.shift();
         const pos = this._spawnPosition();
-        this.enemies.push(new Enemy(pos.x, pos.y, this.wave, next.type));
-        this.spawnTimer = next.delay;
+        this.enemies.push(new Enemy(pos.x, pos.y, this.wave, next.type, this.mapMods.enemyDamagePct));
+        this.spawnTimer = next.delay / hasteMul;
       }
     } else if (this.enemies.length === 0) {
       this.waveClearTimer += dt;
       if (this.waveClearTimer >= WAVE_CLEAR_PAUSE) {
+        if (this.bossPhase) {
+          this.callbacks.onMapComplete(this.currencyEarned, this.xpEarned);
+          return;
+        }
         this.wave += 1;
-        this.spawnQueue = buildWave(this.wave);
-        this.spawnTimer = 0.6;
         this.waveClearTimer = 0;
-        this.callbacks.onWaveChange(this.wave);
+        if (this.wave > this.mapDef.rounds) {
+          this.bossPhase = true;
+          this.spawnQueue = [{ delay: 0.6, type: 'boss' }];
+          this.spawnTimer = 0.6 / hasteMul;
+          this.callbacks.onWaveChange('Boss');
+        } else {
+          this.spawnQueue = buildWave(this.wave, this.mapMods.packSizePct);
+          this.spawnTimer = 0.6 / hasteMul;
+          this.callbacks.onWaveChange(this.wave);
+        }
       }
     }
 
@@ -194,7 +214,7 @@ export class CombatScene {
     if (this.evadeFlashTimer > 0) this.evadeFlashTimer -= dt;
 
     if (ch.hp <= 0 && this.running) {
-      this.callbacks.onDeath(this.wave, this.currencyEarned);
+      this.callbacks.onDeath(this.wave, this.currencyEarned, this.xpEarned);
     }
   }
 
@@ -242,6 +262,7 @@ export class CombatScene {
     enemy.hp -= damage;
     if (enemy.hp <= 0 && enemy.value) {
       this._rollDrops(enemy.value);
+      this.xpEarned += enemy.xpValue * (1 + this.mapMods.xpPct / 100);
       enemy.value = 0; // guard against double-counting a kill within the same frame
     }
   }

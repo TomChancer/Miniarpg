@@ -1,6 +1,7 @@
 import { findFreeSpot } from './grid.js';
 import { getEquipmentDef, SLOTS } from './equipment.js';
 import { getGemById } from './gems.js';
+import { getPlayerStatBonuses, getMapStatBonuses } from './progression.js';
 
 // Cinder currency buys gear; Void currency buys skill gems. Shards are the
 // common/base tier of each family, Fragments the rare tier — dropChance is
@@ -291,6 +292,11 @@ export function getTotalStats() {
     for (const key of Object.keys(BASE_STATS)) {
       stats[key] += def.stats?.[key] || 0;
     }
+  }
+  const playerBonuses = getPlayerStatBonuses();
+  const mapBonuses = getMapStatBonuses();
+  for (const key of Object.keys(BASE_STATS)) {
+    stats[key] += (playerBonuses[key] || 0) + (mapBonuses[key] || 0);
   }
   return stats;
 }
