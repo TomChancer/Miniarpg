@@ -37,6 +37,10 @@ export class CombatScene {
     this.evadeFlashTimer = 0;
     this.wave = 1;
     this.bossPhase = false;
+    // Distinct from `running` (which just tracks the rAF loop): `ended`
+    // marks that onDeath/onMapComplete has already fired, so a stray extra
+    // _update call — however it's driven — never fires it twice.
+    this.ended = false;
     this.spawnQueue = buildWave(this.wave, this.mapMods.packSizePct);
     this.spawnTimer = 0.5;
     this.waveClearTimer = 0;
@@ -125,7 +129,10 @@ export class CombatScene {
       this.waveClearTimer += dt;
       if (this.waveClearTimer >= WAVE_CLEAR_PAUSE) {
         if (this.bossPhase) {
-          this.callbacks.onMapComplete(this.currencyEarned, this.xpEarned);
+          if (!this.ended) {
+            this.ended = true;
+            this.callbacks.onMapComplete(this.currencyEarned, this.xpEarned);
+          }
           return;
         }
         this.wave += 1;
@@ -215,7 +222,8 @@ export class CombatScene {
     }
     if (this.evadeFlashTimer > 0) this.evadeFlashTimer -= dt;
 
-    if (ch.hp <= 0 && this.running) {
+    if (ch.hp <= 0 && !this.ended) {
+      this.ended = true;
       this.callbacks.onDeath(this.wave, this.currencyEarned, this.xpEarned);
     }
   }

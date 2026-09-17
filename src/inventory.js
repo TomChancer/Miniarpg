@@ -143,7 +143,7 @@ export function addGem(defId) {
   const s = load();
   const spot = findFreeSpot(s.gems, GEM_W, GEM_H, 1, 1);
   if (!spot) return false;
-  s.gems.push({ instanceId: makeId(), defId, x: spot.x, y: spot.y });
+  s.gems.push({ instanceId: makeId(), defId, x: spot.x, y: spot.y, w: 1, h: 1 });
   save();
   return true;
 }
