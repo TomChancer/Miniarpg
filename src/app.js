@@ -468,4 +468,16 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('service-worker.js').catch(() => {});
   });
+  // The first controllerchange just means the service worker claimed this
+  // page for the first time ever — not an update, so don't reload for it.
+  // Only a *later* controllerchange means a newer worker actually took over,
+  // which is when the already-open page needs to reload to get the new JS.
+  let controlledOnce = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!controlledOnce) {
+      controlledOnce = true;
+      return;
+    }
+    window.location.reload();
+  });
 }

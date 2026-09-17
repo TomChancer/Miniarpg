@@ -1,4 +1,4 @@
-const CACHE_NAME = 'miniarpg-v3';
+const CACHE_NAME = 'miniarpg-v4';
 const APP_SHELL = [
   './',
   './index.html',
@@ -20,7 +20,13 @@ const APP_SHELL = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all(
+        APP_SHELL.map((url) =>
+          fetch(url, { cache: 'no-store' }).then((response) => cache.put(url, response))
+        )
+      )
+    )
   );
   self.skipWaiting();
 });
@@ -36,18 +42,17 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  // Network-first: always try to get the latest deploy. Cache is only a
+  // fallback for offline play, never the default source when online.
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const network = fetch(event.request)
-        .then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
+    fetch(event.request, { cache: 'no-store' })
+      .then((response) => {
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
