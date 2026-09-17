@@ -47,19 +47,23 @@ const ENEMY_TYPES = {
 };
 
 export class Enemy {
-  constructor(x, y, wave, type = 'husk', enemyDamagePct = 0) {
+  // toughnessPct makes an enemy tankier and harder-hitting, but also worth
+  // more loot rolls and XP when it dies — a risk/reward knob on individual
+  // monsters, distinct from enemyDamagePct (a pure drawback from Overrun).
+  constructor(x, y, wave, type = 'husk', enemyDamagePct = 0, toughnessPct = 0) {
     const def = ENEMY_TYPES[type];
+    const toughMul = 1 + toughnessPct / 100;
     this.x = x;
     this.y = y;
     this.type = type;
     this.radius = def.radius;
     this.speed = def.speed;
     this.color = def.color;
-    this.maxHp = Math.round((10 + wave * 4) * def.hpMul);
+    this.maxHp = Math.round((10 + wave * 4) * def.hpMul * toughMul);
     this.hp = this.maxHp;
-    this.damage = Math.round((3 + wave * 0.8) * def.dmgMul * (1 + enemyDamagePct / 100));
-    this.value = def.value;
-    this.xpValue = def.xpValue;
+    this.damage = Math.round((3 + wave * 0.8) * def.dmgMul * (1 + enemyDamagePct / 100) * toughMul);
+    this.value = Math.max(1, Math.round(def.value * toughMul));
+    this.xpValue = Math.round(def.xpValue * toughMul);
     this.attackCooldown = 0.8;
     this.attackTimer = Math.random() * this.attackCooldown;
   }

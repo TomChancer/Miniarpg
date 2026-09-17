@@ -116,7 +116,9 @@ export class CombatScene {
       if (this.spawnTimer <= 0) {
         const next = this.spawnQueue.shift();
         const pos = this._spawnPosition();
-        this.enemies.push(new Enemy(pos.x, pos.y, this.wave, next.type, this.mapMods.enemyDamagePct));
+        this.enemies.push(
+          new Enemy(pos.x, pos.y, this.wave, next.type, this.mapMods.enemyDamagePct, this.mapMods.monsterToughnessPct)
+        );
         this.spawnTimer = next.delay / hasteMul;
       }
     } else if (this.enemies.length === 0) {

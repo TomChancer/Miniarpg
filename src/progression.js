@@ -1,10 +1,13 @@
 import { getTree, getNode } from './talentTrees.js';
 
-const STATE_KEY = 'miniarpg.progression.v1';
+// Bumped because the mapping tree's Vitality spoke was replaced with Monster
+// Toughness — old saves would otherwise keep pointing at node ids that no
+// longer exist.
+const STATE_KEY = 'miniarpg.progression.v2';
 
 const STAT_KEYS = ['strength', 'vitality', 'intelligence', 'dexterity', 'rarity'];
 const PLAYER_MULTIPLIER_KEYS = ['damageMultiplier', 'hpMultiplier', 'manaMultiplier', 'manaRegenMultiplier', 'speedMultiplierBonus'];
-const MAP_MOD_KEYS = ['packSizePct', 'xpPct', 'spawnRatePct', 'enemyDamagePct'];
+const MAP_MOD_KEYS = ['packSizePct', 'xpPct', 'spawnRatePct', 'enemyDamagePct', 'monsterToughnessPct'];
 
 function defaultState() {
   return {
@@ -158,5 +161,6 @@ export function getMapModifiers() {
     xpPct: mods.xpPct || 0,
     spawnRatePct: mods.spawnRatePct || 0,
     enemyDamagePct: mods.enemyDamagePct || 0,
+    monsterToughnessPct: mods.monsterToughnessPct || 0,
   };
 }

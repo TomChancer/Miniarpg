@@ -91,7 +91,7 @@ export const MAPPING_TREE = makeTree([
   { id: 'rar', angle: -18, steps: statSteps('rarity', 3, 4) },
   { id: 'xp', angle: 54, steps: modSteps('xpPct', 'Fortune', 8, 4) },
   { id: 'haste', angle: 126, steps: modSteps('spawnRatePct', 'Haste', 5, 4) },
-  { id: 'vit', angle: 198, steps: statSteps('vitality', 3, 4) },
+  { id: 'tough', angle: 198, steps: modSteps('monsterToughnessPct', 'Monster Toughness', 3, 4) },
 ]);
 
 export const TREES = { player: PLAYER_TREE, mapping: MAPPING_TREE };
