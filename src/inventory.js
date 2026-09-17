@@ -1,14 +1,19 @@
 import { findFreeSpot } from './grid.js';
 import { getEquipmentDef, SLOTS } from './equipment.js';
+import { getGemById } from './gems.js';
 
 export const CURRENCY = { id: 'cinderShards', name: 'Cinder Shards', stackCap: 20 };
+
+export const BASE_STATS = { strength: 5, vitality: 5, intelligence: 5, dexterity: 5 };
 
 const GENERAL_W = 6;
 const GENERAL_H = 8;
 const GEM_W = 5;
 const GEM_H = 6;
 
-const STATE_KEY = 'miniarpg.inventory.v1';
+// Bumped because the skill/stat rework changes what a socketed gem id can
+// resolve to — a clean slate avoids ghost items nothing can render anymore.
+const STATE_KEY = 'miniarpg.inventory.v2';
 
 function defaultState() {
   return {
@@ -209,6 +214,9 @@ export function socketGem(slot, socketIndex, gemDefId) {
   const s = load();
   const item = s.equipped[slot];
   if (!item || item.sockets[socketIndex] !== null) return false;
+  const gemDef = getGemById(gemDefId);
+  const req = gemDef?.requirement;
+  if (req && getTotalStats()[req.stat] < req.value) return false;
   if (!removeOneGemByDef(gemDefId)) return false;
   item.sockets[socketIndex] = gemDefId;
   save();
@@ -261,4 +269,23 @@ export function getSpeedMultiplier() {
     bonus += def.stats?.attackSpeedPct || 0;
   }
   return 1 + bonus;
+}
+
+export function getTotalStats() {
+  const s = load();
+  const stats = { ...BASE_STATS };
+  for (const slot of SLOTS) {
+    const item = s.equipped[slot];
+    if (!item) continue;
+    const def = getEquipmentDef(item.defId);
+    for (const key of Object.keys(BASE_STATS)) {
+      stats[key] += def.stats?.[key] || 0;
+    }
+  }
+  return stats;
+}
+
+export function meetsRequirement(requirement) {
+  if (!requirement) return true;
+  return getTotalStats()[requirement.stat] >= requirement.value;
 }

@@ -6,6 +6,7 @@
   --ember: #e04f4f;
   --hp: #4caf6a;
   --hp-low: #e04f4f;
+  --mana: #4f8fe0;
   --text: #ece6f7;
   --text-dim: #9c93b5;
 }
@@ -176,6 +177,19 @@ button.secondary:active { transform: scale(0.97); }
   min-height: 2.2em;
 }
 
+.stats-row {
+  display: flex;
+  justify-content: space-between;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.78rem;
+}
+
+.stats-row .stat-chip { color: var(--text-dim); }
+.stats-row .stat-chip strong { color: var(--gold); font-weight: 600; }
+
 .inv-tabs { display: flex; gap: 8px; }
 
 .inv-tab {
@@ -341,6 +355,22 @@ button.secondary:active { transform: scale(0.97); }
   transition: width 0.15s linear, background 0.3s;
 }
 
+#mana-bar-outer {
+  height: 10px;
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  background: #241d38;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+#mana-bar-inner {
+  height: 100%;
+  width: 100%;
+  background: var(--mana);
+  transition: width 0.15s linear;
+}
+
 #hud-row {
   display: flex;
   justify-content: space-between;
@@ -439,6 +469,7 @@ button.secondary:active { transform: scale(0.97); }
 .gem-name { font-weight: 600; color: var(--text); }
 .gem-cost { font-size: 0.78rem; color: var(--gold); }
 .gem-desc { font-size: 0.82rem; color: var(--text-dim); }
+.req-unmet { color: var(--hp-low); }
 
 .gem-action {
   align-self: flex-start;

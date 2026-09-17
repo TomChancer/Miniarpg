@@ -1,16 +1,34 @@
+const MANA_REGEN_PCT_PER_SEC = 0.08;
+
 export class Character {
-  constructor(x, y) {
+  constructor(x, y, stats) {
     this.x = x;
     this.y = y;
     this.radius = 22;
-    this.maxHp = 100;
-    this.hp = this.maxHp;
     this.damage = 8;
-    this.range = 220;
+
+    this.strength = stats.strength;
+    this.vitality = stats.vitality;
+    this.intelligence = stats.intelligence;
+    this.dexterity = stats.dexterity;
+
+    this.maxHp = 60 + this.vitality * 8;
+    this.hp = this.maxHp;
+    this.maxMana = 20 + this.intelligence * 6;
+    this.mana = this.maxMana;
+    this.evasionChance = Math.min(0.6, this.dexterity * 0.02);
   }
 
   isAlive() {
     return this.hp > 0;
+  }
+
+  damageMultiplier(stat) {
+    return 1 + (this[stat] || 0) * 0.05;
+  }
+
+  regenMana(dt) {
+    this.mana = Math.min(this.maxMana, this.mana + this.maxMana * MANA_REGEN_PCT_PER_SEC * dt);
   }
 }
 

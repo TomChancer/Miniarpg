@@ -1,11 +1,10 @@
 import { Character, Enemy, Projectile, buildWave } from './entities.js';
-import { getGemById } from './gems.js';
-import { getSocketedGemDefIds, getSpeedMultiplier } from './inventory.js';
+import { PUNCH_SKILL, getGemById } from './gems.js';
+import { getSocketedGemDefIds, getSpeedMultiplier, getTotalStats, meetsRequirement } from './inventory.js';
 
 const WAVE_CLEAR_PAUSE = 1.4;
-
-// Always active regardless of gear, so combat is playable before any purchases.
-const BASELINE_SKILL = { projectiles: 1, pierce: 0, speed: 2 };
+const EVADE_FLASH_DURATION = 0.15;
+const DASH_DURATION = 0.35;
 
 export class CombatScene {
   constructor(canvas, callbacks) {
@@ -21,9 +20,13 @@ export class CombatScene {
     window.addEventListener('resize', this._resize);
     this._resize();
 
-    this.character = new Character(this.width / 2, this.height * 0.62);
+    const stats = getTotalStats();
+    this.character = new Character(this.width / 2, this.height * 0.62, stats);
     this.enemies = [];
     this.projectiles = [];
+    this.effects = [];
+    this.dash = null;
+    this.evadeFlashTimer = 0;
     this.wave = 1;
     this.spawnQueue = buildWave(this.wave);
     this.spawnTimer = 0.5;
@@ -31,7 +34,13 @@ export class CombatScene {
     this.currencyEarned = 0;
 
     this.speedMultiplier = getSpeedMultiplier();
-    const skillDefs = [BASELINE_SKILL, ...getSocketedGemDefIds().map((id) => getGemById(id))];
+    // Punch is innate; socketed gems only count if their stat requirement is
+    // still met (handles gear being unequipped after a gem was socketed) and
+    // if the id still resolves to a known gem at all.
+    const gemDefs = getSocketedGemDefIds()
+      .map((id) => getGemById(id))
+      .filter((def) => def && meetsRequirement(def.requirement));
+    const skillDefs = [PUNCH_SKILL, ...gemDefs];
     this.skills = skillDefs.map((def) => ({
       def,
       timer: Math.random() * (1 / (def.speed * this.speedMultiplier)),
@@ -39,6 +48,7 @@ export class CombatScene {
 
     this.callbacks.onWaveChange(this.wave);
     this.callbacks.onHpChange(this.character.hp, this.character.maxHp);
+    this.callbacks.onManaChange(this.character.mana, this.character.maxMana);
     this.callbacks.onCurrencyChange(this.currencyEarned);
 
     this.running = true;
@@ -122,23 +132,25 @@ export class CombatScene {
         enemy.attackTimer -= dt;
         if (enemy.attackTimer <= 0) {
           enemy.attackTimer = enemy.attackCooldown;
-          ch.hp = Math.max(0, ch.hp - enemy.damage);
-          this.callbacks.onHpChange(ch.hp, ch.maxHp);
+          if (Math.random() < ch.evasionChance) {
+            this.evadeFlashTimer = EVADE_FLASH_DURATION;
+          } else {
+            ch.hp = Math.max(0, ch.hp - enemy.damage);
+            this.callbacks.onHpChange(ch.hp, ch.maxHp);
+          }
         }
       }
     }
 
-    // --- character auto-attack: every socketed skill fires independently ---
+    // --- mana regen ---
+    ch.regenMana(dt);
+    this.callbacks.onManaChange(ch.mana, ch.maxMana);
+
+    // --- character auto-attack: every active skill fires independently ---
     for (const skill of this.skills) {
       skill.timer -= dt;
       if (skill.timer <= 0) {
-        const targets = this._nearestEnemiesInRange(ch, skill.def.projectiles);
-        if (targets.length > 0) {
-          for (const target of targets) {
-            this.projectiles.push(
-              new Projectile(ch.x, ch.y, target.x, target.y, ch.damage, skill.def.pierce)
-            );
-          }
+        if (this._castSkill(skill.def)) {
           skill.timer = 1 / (skill.def.speed * this.speedMultiplier);
         }
       }
@@ -155,12 +167,8 @@ export class CombatScene {
         if (!enemy.isAlive() || p.hitEnemies.has(enemy)) continue;
         const d = Math.hypot(enemy.x - p.x, enemy.y - p.y);
         if (d < enemy.radius + p.radius) {
-          enemy.hp -= p.damage;
+          this._damageEnemy(enemy, p.damage);
           p.hitEnemies.add(enemy);
-          if (enemy.hp <= 0) {
-            this.currencyEarned += enemy.value;
-            this.callbacks.onCurrencyChange(this.currencyEarned);
-          }
           if (p.pierceRemaining > 0) {
             p.pierceRemaining -= 1;
           } else {
@@ -174,25 +182,101 @@ export class CombatScene {
     this.projectiles = this.projectiles.filter((p) => !p.dead);
     this.enemies = this.enemies.filter((e) => e.isAlive());
 
+    // --- transient visuals ---
+    for (const fx of this.effects) fx.life -= dt;
+    this.effects = this.effects.filter((fx) => fx.life > 0);
+    if (this.dash) {
+      this.dash.elapsed += dt;
+      if (this.dash.elapsed >= this.dash.duration) this.dash = null;
+    }
+    if (this.evadeFlashTimer > 0) this.evadeFlashTimer -= dt;
+
     if (ch.hp <= 0 && this.running) {
       this.callbacks.onDeath(this.wave, this.currencyEarned);
     }
   }
 
-  _nearestEnemiesInRange(ch, count) {
-    return this.enemies
-      .map((enemy) => ({ enemy, dist: Math.hypot(enemy.x - ch.x, enemy.y - ch.y) }))
-      .filter((entry) => entry.dist <= ch.range)
-      .sort((a, b) => a.dist - b.dist)
-      .slice(0, count)
-      .map((entry) => entry.enemy);
+  _castSkill(def) {
+    const ch = this.character;
+    if (ch.mana < def.manaCost) return false;
+    const dmg = ch.damage * ch.damageMultiplier(def.scalingStat);
+
+    if (def.kind === 'projectile') {
+      const target = this._nearestEnemy(def.range);
+      if (!target) return false;
+      this.projectiles.push(new Projectile(ch.x, ch.y, target.x, target.y, dmg, def.pierce || 0));
+    } else if (def.kind === 'melee') {
+      const target = this._nearestEnemy(def.range);
+      if (!target) return false;
+      this._damageEnemy(target, dmg);
+      this.effects.push({
+        type: 'hit', x: target.x, y: target.y, radius: target.radius + 6,
+        life: 0.15, maxLife: 0.15,
+      });
+    } else if (def.kind === 'line') {
+      const target = this._nearestEnemy(def.range);
+      if (!target) return false;
+      const angle = Math.atan2(target.y - ch.y, target.x - ch.x);
+      const hits = this._enemiesInLine(angle, def.range, def.lineWidth / 2);
+      for (const enemy of hits) this._damageEnemy(enemy, dmg);
+      this.effects.push({
+        type: 'line', x: ch.x, y: ch.y, angle, range: def.range, width: def.lineWidth,
+        life: 0.2, maxLife: 0.2,
+      });
+    } else if (def.kind === 'dash') {
+      const target = this._nearestEnemy(def.range);
+      if (!target) return false;
+      this._damageEnemy(target, dmg);
+      this.dash = { toX: target.x, toY: target.y, elapsed: 0, duration: DASH_DURATION };
+    } else {
+      return false;
+    }
+
+    ch.mana -= def.manaCost;
+    return true;
+  }
+
+  _damageEnemy(enemy, damage) {
+    enemy.hp -= damage;
+    if (enemy.hp <= 0 && enemy.value) {
+      this.currencyEarned += enemy.value;
+      this.callbacks.onCurrencyChange(this.currencyEarned);
+      enemy.value = 0; // guard against double-counting a kill within the same frame
+    }
+  }
+
+  _nearestEnemy(range) {
+    const ch = this.character;
+    let best = null;
+    let bestDist = range;
+    for (const enemy of this.enemies) {
+      const d = Math.hypot(enemy.x - ch.x, enemy.y - ch.y);
+      if (d <= bestDist) {
+        bestDist = d;
+        best = enemy;
+      }
+    }
+    return best;
+  }
+
+  _enemiesInLine(angle, range, halfWidth) {
+    const ch = this.character;
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    return this.enemies.filter((enemy) => {
+      const relX = enemy.x - ch.x;
+      const relY = enemy.y - ch.y;
+      const along = relX * dx + relY * dy;
+      if (along < 0 || along > range) return false;
+      const perp = Math.abs(relX * dy - relY * dx);
+      return perp <= halfWidth + enemy.radius;
+    });
   }
 
   _render() {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, this.width, this.height);
 
-    // arena ground
     const ch = this.character;
     const grad = ctx.createRadialGradient(ch.x, ch.y, 20, ch.x, ch.y, Math.max(this.width, this.height) * 0.6);
     grad.addColorStop(0, '#241d38');
@@ -200,21 +284,46 @@ export class CombatScene {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, this.width, this.height);
 
-    ctx.strokeStyle = 'rgba(216, 176, 84, 0.25)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(ch.x, ch.y, ch.range, 0, Math.PI * 2);
-    ctx.stroke();
+    // line-attack sweeps, drawn under everything else like a ground effect
+    for (const fx of this.effects) {
+      if (fx.type !== 'line') continue;
+      const alpha = Math.max(0, fx.life / fx.maxLife);
+      ctx.save();
+      ctx.translate(fx.x, fx.y);
+      ctx.rotate(fx.angle);
+      ctx.fillStyle = `rgba(224, 169, 90, ${alpha * 0.55})`;
+      ctx.fillRect(0, -fx.width / 2, fx.range, fx.width);
+      ctx.restore();
+    }
 
-    // character
+    // character (visually offset mid-dash; real x/y never moves)
+    let renderX = ch.x;
+    let renderY = ch.y;
+    if (this.dash) {
+      const t = Math.min(1, this.dash.elapsed / this.dash.duration);
+      const outT = t < 0.5 ? t / 0.5 : 1 - (t - 0.5) / 0.5;
+      const eased = outT * outT * (3 - 2 * outT);
+      renderX = ch.x + (this.dash.toX - ch.x) * eased;
+      renderY = ch.y + (this.dash.toY - ch.y) * eased;
+    }
+
     ctx.fillStyle = '#d8b054';
     ctx.beginPath();
-    ctx.arc(ch.x, ch.y, ch.radius, 0, Math.PI * 2);
+    ctx.arc(renderX, renderY, ch.radius, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#e04f4f';
     ctx.beginPath();
-    ctx.arc(ch.x, ch.y, ch.radius * 0.45, 0, Math.PI * 2);
+    ctx.arc(renderX, renderY, ch.radius * 0.45, 0, Math.PI * 2);
     ctx.fill();
+
+    if (this.evadeFlashTimer > 0) {
+      const alpha = this.evadeFlashTimer / EVADE_FLASH_DURATION;
+      ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(ch.x, ch.y, ch.radius + 6, 0, Math.PI * 2);
+      ctx.stroke();
+    }
 
     // enemies
     for (const enemy of this.enemies) {
@@ -237,6 +346,17 @@ export class CombatScene {
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    // melee/dash hit flashes, on top of everything
+    for (const fx of this.effects) {
+      if (fx.type !== 'hit') continue;
+      const alpha = Math.max(0, fx.life / fx.maxLife);
+      ctx.strokeStyle = `rgba(255,243,196,${alpha})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(fx.x, fx.y, fx.radius, 0, Math.PI * 2);
+      ctx.stroke();
     }
   }
 }

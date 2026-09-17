@@ -15,8 +15,17 @@ import {
   socketGem,
   unsocketGem,
   discardItem,
+  getTotalStats,
+  meetsRequirement,
 } from './inventory.js';
 import { GEMS, getGemById } from './gems.js';
+
+const STAT_LABELS = { strength: 'STR', vitality: 'VIT', intelligence: 'INT', dexterity: 'DEX' };
+
+function requirementText(requirement) {
+  if (!requirement) return 'No requirement';
+  return `Requires ${requirement.value} ${STAT_LABELS[requirement.stat]}`;
+}
 import { EQUIPMENT_ITEMS, getEquipmentDef, SLOTS } from './equipment.js';
 import { getAvailableNpcs } from './npcs.js';
 
@@ -36,6 +45,7 @@ function showScreen(name) {
 
 const canvas = document.getElementById('combat-canvas');
 const hpBarInner = document.getElementById('hp-bar-inner');
+const manaBarInner = document.getElementById('mana-bar-inner');
 const hpLabel = document.getElementById('hp-label');
 const waveLabel = document.getElementById('wave-label');
 const shardsLabel = document.getElementById('shards-label');
@@ -55,6 +65,7 @@ const itemModalTitle = document.getElementById('item-modal-title');
 const itemModalBody = document.getElementById('item-modal-body');
 const bagGridEl = document.getElementById('bag-grid');
 const gemGridEl = document.getElementById('gem-grid');
+const statsRowEl = document.getElementById('stats-row');
 
 let scene = null;
 let currentModalItem = null;
@@ -142,6 +153,7 @@ function renderShop() {
 
   for (const def of GEMS) {
     const canAfford = getBalance() >= def.cost;
+    const met = meetsRequirement(def.requirement);
     const card = document.createElement('div');
     card.className = 'gem-card';
     card.innerHTML = `
@@ -150,6 +162,7 @@ function renderShop() {
         <span class="gem-cost">${def.cost} ${CURRENCY.name}</span>
       </div>
       <div class="gem-desc">${def.description}</div>
+      <div class="gem-desc">${def.manaCost} mana &middot; <span class="${met ? '' : 'req-unmet'}">${requirementText(def.requirement)}</span></div>
       <button class="gem-action" data-buy-gem="${def.id}" ${canAfford ? '' : 'disabled'}>Buy</button>
     `;
     shopItemsEl.appendChild(card);
@@ -192,8 +205,16 @@ function buyGem(defId) {
 function refreshInventoryScreen() {
   refreshCurrencyDisplay();
   renderPaperdoll();
+  renderStats();
   renderGrid(bagGridEl, getGeneralGrid(), 'bag');
   renderGrid(gemGridEl, getGemGrid(), 'gems');
+}
+
+function renderStats() {
+  const stats = getTotalStats();
+  statsRowEl.innerHTML = Object.entries(STAT_LABELS)
+    .map(([key, label]) => `<span class="stat-chip">${label} <strong>${stats[key]}</strong></span>`)
+    .join('');
 }
 
 function renderPaperdoll() {
@@ -267,10 +288,12 @@ function openItemModal(tabKind, item) {
 
   if (tabKind === 'gems') {
     const def = getGemById(item.defId);
+    const met = meetsRequirement(def.requirement);
     itemModalTitle.textContent = def.name;
     itemModalBody.innerHTML = `
       <div class="gem-desc">${def.description}</div>
-      <div class="gem-desc">Base speed: ${def.speed}/s</div>
+      <div class="gem-desc">${def.speed}/s &middot; ${def.manaCost} mana &middot; scales with ${STAT_LABELS[def.scalingStat]}</div>
+      <div class="gem-desc"><span class="${met ? '' : 'req-unmet'}">${requirementText(def.requirement)}</span></div>
       <button class="gem-action" id="item-discard">Discard</button>
     `;
   } else if (item.kind === 'currency') {
@@ -387,7 +410,12 @@ function openGemPicker(slot, socketIndex) {
   itemModalBody.innerHTML = entries
     .map(([defId, count]) => {
       const def = getGemById(defId);
-      return `<button class="gem-action gem-picker-option" data-gem="${defId}">${def.name} (${count})</button>`;
+      const met = meetsRequirement(def.requirement);
+      return `
+        <button class="gem-action gem-picker-option" data-gem="${defId}" ${met ? '' : 'disabled'}>
+          ${def.name} (${count}) &mdash; <span class="${met ? '' : 'req-unmet'}">${requirementText(def.requirement)}</span>
+        </button>
+      `;
     })
     .join('');
 
@@ -396,6 +424,8 @@ function openGemPicker(slot, socketIndex) {
       if (socketGem(slot, socketIndex, btn.dataset.gem)) {
         refreshInventoryScreen();
         openEquippedModal(slot);
+      } else {
+        alert('Your stats don\'t meet this gem\'s requirement yet.');
       }
     });
   });
@@ -411,6 +441,10 @@ function startCombat() {
       hpBarInner.style.width = `${pct}%`;
       hpBarInner.style.background = pct <= 30 ? 'var(--hp-low)' : 'var(--hp)';
       hpLabel.textContent = `${Math.ceil(hp)} / ${maxHp}`;
+    },
+    onManaChange(mana, maxMana) {
+      const pct = Math.max(0, (mana / maxMana) * 100);
+      manaBarInner.style.width = `${pct}%`;
     },
     onWaveChange(wave) {
       waveLabel.textContent = `Wave ${wave}`;
