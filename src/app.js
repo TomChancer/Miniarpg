@@ -1,7 +1,7 @@
 import { CombatScene } from './combat.js';
 import { getBestWave, reportWaveReached } from './storage.js';
 import {
-  CURRENCY,
+  CURRENCIES,
   getBalance,
   addCurrency,
   spendCurrency,
@@ -19,15 +19,19 @@ import {
   meetsRequirement,
 } from './inventory.js';
 import { GEMS, getGemById } from './gems.js';
+import { EQUIPMENT_ITEMS, getEquipmentDef, SLOTS } from './equipment.js';
+import { getAvailableNpcs } from './npcs.js';
 
-const STAT_LABELS = { strength: 'STR', vitality: 'VIT', intelligence: 'INT', dexterity: 'DEX' };
+const STAT_LABELS = { strength: 'STR', vitality: 'VIT', intelligence: 'INT', dexterity: 'DEX', rarity: 'RAR' };
 
 function requirementText(requirement) {
   if (!requirement) return 'No requirement';
   return `Requires ${requirement.value} ${STAT_LABELS[requirement.stat]}`;
 }
-import { EQUIPMENT_ITEMS, getEquipmentDef, SLOTS } from './equipment.js';
-import { getAvailableNpcs } from './npcs.js';
+
+function currencyCost(def) {
+  return `${def.cost} ${CURRENCIES[def.currency].name}`;
+}
 
 const screens = {
   town: document.getElementById('town-screen'),
@@ -74,12 +78,43 @@ function refreshBestWave() {
   bestWaveEl.textContent = `Best wave: ${getBestWave()}`;
 }
 
+function currencyChipsHtml() {
+  return Object.values(CURRENCIES)
+    .map(
+      (c) => `
+        <span class="currency-chip">
+          <span class="chip-dot" style="background:${c.color}"></span>
+          <strong>${getBalance(c.id)}</strong> ${c.name}
+        </span>
+      `
+    )
+    .join('');
+}
+
+function bankCurrencyEarnings(earned) {
+  for (const [currencyId, amount] of Object.entries(earned)) {
+    if (amount > 0) addCurrency(currencyId, amount);
+  }
+}
+
+function renderEarnedChips(earned) {
+  resultEarnedEl.innerHTML = Object.values(CURRENCIES)
+    .map(
+      (c) => `
+        <span class="currency-chip">
+          <span class="chip-dot" style="background:${c.color}"></span>
+          <strong>${earned[c.id] || 0}</strong> ${c.name}
+        </span>
+      `
+    )
+    .join('');
+}
+
 function refreshCurrencyDisplay() {
-  const balance = getBalance();
-  const html = `${balance} <span class="currency-name">${CURRENCY.name}</span>`;
+  const html = currencyChipsHtml();
   currencyDisplay.innerHTML = html;
   invCurrencyDisplay.innerHTML = html;
-  shopBalance.textContent = `${balance} ${CURRENCY.name}`;
+  shopBalance.innerHTML = html;
 }
 
 // --- town / NPCs ---
@@ -129,7 +164,7 @@ function renderShop() {
   shopItemsEl.appendChild(gearHeader);
 
   for (const def of EQUIPMENT_ITEMS) {
-    const canAfford = getBalance() >= def.cost;
+    const canAfford = getBalance(def.currency) >= def.cost;
     const speedNote = def.stats?.attackSpeedPct
       ? ` &middot; +${Math.round(def.stats.attackSpeedPct * 100)}% attack speed`
       : '';
@@ -138,7 +173,7 @@ function renderShop() {
     card.innerHTML = `
       <div class="gem-card-top">
         <span class="gem-name">${def.name}</span>
-        <span class="gem-cost">${def.cost} ${CURRENCY.name}</span>
+        <span class="gem-cost">${currencyCost(def)}</span>
       </div>
       <div class="gem-desc">${def.sockets} sockets${speedNote}</div>
       <button class="gem-action" data-buy-gear="${def.id}" ${canAfford ? '' : 'disabled'}>Buy</button>
@@ -152,14 +187,14 @@ function renderShop() {
   shopItemsEl.appendChild(gemHeader);
 
   for (const def of GEMS) {
-    const canAfford = getBalance() >= def.cost;
+    const canAfford = getBalance(def.currency) >= def.cost;
     const met = meetsRequirement(def.requirement);
     const card = document.createElement('div');
     card.className = 'gem-card';
     card.innerHTML = `
       <div class="gem-card-top">
         <span class="gem-name">${def.name}</span>
-        <span class="gem-cost">${def.cost} ${CURRENCY.name}</span>
+        <span class="gem-cost">${currencyCost(def)}</span>
       </div>
       <div class="gem-desc">${def.description}</div>
       <div class="gem-desc">${def.manaCost} mana &middot; <span class="${met ? '' : 'req-unmet'}">${requirementText(def.requirement)}</span></div>
@@ -178,24 +213,24 @@ function renderShop() {
 
 function buyGear(defId) {
   const def = getEquipmentDef(defId);
-  if (getBalance() < def.cost) return;
+  if (getBalance(def.currency) < def.cost) return;
   if (!buyEquipment(defId)) {
     alert('Your bag is full — make room in your Inventory first.');
     return;
   }
-  spendCurrency(def.cost);
+  spendCurrency(def.currency, def.cost);
   refreshCurrencyDisplay();
   renderShop();
 }
 
 function buyGem(defId) {
   const def = getGemById(defId);
-  if (getBalance() < def.cost) return;
+  if (getBalance(def.currency) < def.cost) return;
   if (!addGem(defId)) {
     alert('Your gem pouch is full — make room in your Inventory first.');
     return;
   }
-  spendCurrency(def.cost);
+  spendCurrency(def.currency, def.cost);
   refreshCurrencyDisplay();
   renderShop();
 }
@@ -253,6 +288,7 @@ function renderGrid(containerEl, gridData, tabKind) {
     const el = document.createElement('div');
     const kindClass = tabKind === 'gems' ? 'gem' : item.kind;
     el.className = `grid-item grid-item-${kindClass}`;
+    if (item.kind === 'currency') el.style.background = CURRENCIES[item.defId].color;
     el.style.gridColumn = `${item.x + 1} / span ${item.w || 1}`;
     el.style.gridRow = `${item.y + 1} / span ${item.h || 1}`;
     el.textContent = itemLabel(item, tabKind);
@@ -297,9 +333,10 @@ function openItemModal(tabKind, item) {
       <button class="gem-action" id="item-discard">Discard</button>
     `;
   } else if (item.kind === 'currency') {
-    itemModalTitle.textContent = CURRENCY.name;
+    const currencyDef = CURRENCIES[item.defId];
+    itemModalTitle.textContent = currencyDef.name;
     itemModalBody.innerHTML = `
-      <div class="gem-desc">${item.quantity} / ${CURRENCY.stackCap} in this stack</div>
+      <div class="gem-desc">${item.quantity} / ${currencyDef.stackCap} in this stack</div>
       <button class="gem-action" id="item-discard">Discard Stack</button>
     `;
   } else {
@@ -450,15 +487,15 @@ function startCombat() {
       waveLabel.textContent = `Wave ${wave}`;
     },
     onCurrencyChange(earned) {
-      shardsLabel.textContent = `+${earned} Shards`;
+      shardsLabel.textContent = `+${earned} Loot`;
     },
     onDeath(waveReached, currencyEarned) {
       scene.stop();
       const best = reportWaveReached(waveReached);
-      addCurrency(currencyEarned);
+      bankCurrencyEarnings(currencyEarned);
       resultWaveEl.textContent = String(waveReached);
       resultBestEl.textContent = String(best);
-      resultEarnedEl.textContent = String(currencyEarned);
+      renderEarnedChips(currencyEarned);
       showScreen('results');
     },
   });
@@ -481,7 +518,7 @@ document.getElementById('item-modal-close').addEventListener('click', closeItemM
 document.getElementById('retreat-btn').addEventListener('click', () => {
   if (scene) {
     scene.stop();
-    addCurrency(scene.currencyEarned);
+    bankCurrencyEarnings(scene.currencyEarned);
   }
   refreshBestWave();
   refreshCurrencyDisplay();

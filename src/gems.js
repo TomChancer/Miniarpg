@@ -32,6 +32,7 @@ export const GEMS = [
     scalingStat: 'intelligence',
     requirement: { stat: 'intelligence', value: 8 },
     cost: 12,
+    currency: 'voidShard',
   },
   {
     id: 'crush',
@@ -45,6 +46,7 @@ export const GEMS = [
     scalingStat: 'strength',
     requirement: { stat: 'strength', value: 7 },
     cost: 18,
+    currency: 'voidShard',
   },
   {
     id: 'slice_and_dice',
@@ -57,6 +59,7 @@ export const GEMS = [
     scalingStat: 'dexterity',
     requirement: { stat: 'dexterity', value: 9 },
     cost: 18,
+    currency: 'voidShard',
   },
 ];
 

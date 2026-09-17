@@ -1,4 +1,4 @@
-const CACHE_NAME = 'miniarpg-v5';
+const CACHE_NAME = 'miniarpg-v6';
 const APP_SHELL = [
   './',
   './index.html',

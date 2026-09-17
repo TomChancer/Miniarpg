@@ -2,18 +2,27 @@ import { findFreeSpot } from './grid.js';
 import { getEquipmentDef, SLOTS } from './equipment.js';
 import { getGemById } from './gems.js';
 
-export const CURRENCY = { id: 'cinderShards', name: 'Cinder Shards', stackCap: 20 };
+// Cinder currency buys gear; Void currency buys skill gems. Shards are the
+// common/base tier of each family, Fragments the rare tier — dropChance is
+// the base per-roll chance before the character's Rarity stat scales it up
+// (see combat.js). stackCap is how many sit in one inventory grid stack.
+export const CURRENCIES = {
+  cinderShard: { id: 'cinderShard', name: 'Cinder Shard', stackCap: 20, dropChance: 0.1, color: '#d8b054' },
+  cinderFragment: { id: 'cinderFragment', name: 'Cinder Fragment', stackCap: 20, dropChance: 0.05, color: '#e0824f' },
+  voidShard: { id: 'voidShard', name: 'Void Shard', stackCap: 20, dropChance: 0.05, color: '#7a6fe0' },
+  voidFragment: { id: 'voidFragment', name: 'Void Fragment', stackCap: 20, dropChance: 0.0025, color: '#c14fe0' },
+};
 
-export const BASE_STATS = { strength: 5, vitality: 5, intelligence: 5, dexterity: 5 };
+export const BASE_STATS = { strength: 5, vitality: 5, intelligence: 5, dexterity: 5, rarity: 0 };
 
 const GENERAL_W = 6;
 const GENERAL_H = 8;
 const GEM_W = 5;
 const GEM_H = 6;
 
-// Bumped because the skill/stat rework changes what a socketed gem id can
-// resolve to — a clean slate avoids ghost items nothing can render anymore.
-const STATE_KEY = 'miniarpg.inventory.v2';
+// Bumped because currencies are no longer a single type — old single-shard
+// stacks can't map cleanly onto the new per-currency ids.
+const STATE_KEY = 'miniarpg.inventory.v3';
 
 function defaultState() {
   return {
@@ -67,22 +76,23 @@ export function getEquipped() {
 
 // --- currency ---
 
-export function getBalance() {
+export function getBalance(currencyId) {
   const s = load();
   return s.general
-    .filter((it) => it.kind === 'currency')
+    .filter((it) => it.kind === 'currency' && it.defId === currencyId)
     .reduce((sum, it) => sum + it.quantity, 0);
 }
 
-export function addCurrency(amount) {
+export function addCurrency(currencyId, amount) {
   if (amount <= 0) return 0;
+  const stackCap = CURRENCIES[currencyId].stackCap;
   const s = load();
   let remaining = amount;
 
   for (const it of s.general) {
     if (remaining <= 0) break;
-    if (it.kind !== 'currency') continue;
-    const space = CURRENCY.stackCap - it.quantity;
+    if (it.kind !== 'currency' || it.defId !== currencyId) continue;
+    const space = stackCap - it.quantity;
     if (space <= 0) continue;
     const add = Math.min(space, remaining);
     it.quantity += add;
@@ -92,11 +102,11 @@ export function addCurrency(amount) {
   while (remaining > 0) {
     const spot = findFreeSpot(s.general, GENERAL_W, GENERAL_H, 1, 1);
     if (!spot) break; // bag is full, remainder is lost
-    const add = Math.min(CURRENCY.stackCap, remaining);
+    const add = Math.min(stackCap, remaining);
     s.general.push({
       instanceId: makeId(),
       kind: 'currency',
-      defId: CURRENCY.id,
+      defId: currencyId,
       x: spot.x,
       y: spot.y,
       w: 1,
@@ -110,18 +120,18 @@ export function addCurrency(amount) {
   return amount - remaining;
 }
 
-export function spendCurrency(amount) {
+export function spendCurrency(currencyId, amount) {
   const s = load();
-  if (getBalance() < amount) return false;
+  if (getBalance(currencyId) < amount) return false;
   let remaining = amount;
   for (const it of s.general) {
     if (remaining <= 0) break;
-    if (it.kind !== 'currency') continue;
+    if (it.kind !== 'currency' || it.defId !== currencyId) continue;
     const take = Math.min(it.quantity, remaining);
     it.quantity -= take;
     remaining -= take;
   }
-  s.general = s.general.filter((it) => !(it.kind === 'currency' && it.quantity <= 0));
+  s.general = s.general.filter((it) => !(it.kind === 'currency' && it.defId === currencyId && it.quantity <= 0));
   save();
   return true;
 }

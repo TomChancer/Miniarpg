@@ -11,6 +11,7 @@ export class Character {
     this.vitality = stats.vitality;
     this.intelligence = stats.intelligence;
     this.dexterity = stats.dexterity;
+    this.rarity = stats.rarity;
 
     this.maxHp = 60 + this.vitality * 8;
     this.hp = this.maxHp;

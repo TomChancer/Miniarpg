@@ -63,19 +63,35 @@ html, body {
   margin: 0;
 }
 
-.currency-display {
-  font-size: 0.85rem;
-  color: var(--gold);
-  font-weight: 600;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 6px 12px;
+.currency-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  width: 100%;
 }
 
-.currency-display .currency-name {
+.currency-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
   color: var(--text-dim);
-  font-weight: 400;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 8px;
+}
+
+.currency-chip .chip-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.currency-chip strong {
+  color: var(--text);
+  font-weight: 600;
 }
 
 .npc-list {

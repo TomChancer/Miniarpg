@@ -17,10 +17,8 @@
 <div id="app">
 
   <section id="town-screen" class="screen active">
-    <div class="town-header">
-      <h1>Town</h1>
-      <div id="currency-display" class="currency-display">0 <span class="currency-name">Cinder Shards</span></div>
-    </div>
+    <h1>Town</h1>
+    <div id="currency-display" class="currency-grid"></div>
     <div id="npc-list" class="npc-list"></div>
     <div class="town-actions">
       <button id="town-set-out" class="primary">Set Out</button>
@@ -42,8 +40,8 @@
     <button id="inventory-back" class="back-btn">&larr; Town</button>
     <div class="inventory-header">
       <h1>Inventory</h1>
-      <div id="inv-currency-display" class="currency-display">0 <span class="currency-name">Cinder Shards</span></div>
     </div>
+    <div id="inv-currency-display" class="currency-grid"></div>
 
     <div class="paperdoll">
       <div class="equip-slot" data-slot="helmet">
@@ -77,7 +75,7 @@
         <h2 id="shop-title">Shop</h2>
         <button id="shop-close" class="icon-btn">&times;</button>
       </div>
-      <div id="shop-balance" class="shop-balance">0 Cinder Shards</div>
+      <div id="shop-balance" class="currency-grid"></div>
       <div id="shop-items" class="gem-list"></div>
     </div>
   </div>
@@ -99,7 +97,7 @@
       <div id="mana-bar-outer"><div id="mana-bar-inner"></div></div>
       <div id="hud-row">
         <span id="wave-label">Wave 1</span>
-        <span id="shards-label">+0 Shards</span>
+        <span id="shards-label">+0 Loot</span>
         <span id="hp-label">100 / 100</span>
       </div>
     </div>
@@ -110,7 +108,7 @@
     <h1>You Fell</h1>
     <div class="stat-line">Wave reached: <span id="result-wave" class="stat-value">1</span></div>
     <div class="stat-line">Best wave: <span id="result-best" class="stat-value">1</span></div>
-    <div class="stat-line">Shards earned: <span id="result-earned" class="stat-value">0</span></div>
+    <div id="result-earned" class="currency-grid"></div>
     <button id="return-btn" class="primary">Return to Town</button>
   </section>
 

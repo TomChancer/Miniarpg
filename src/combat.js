@@ -1,10 +1,12 @@
 import { Character, Enemy, Projectile, buildWave } from './entities.js';
 import { PUNCH_SKILL, getGemById } from './gems.js';
-import { getSocketedGemDefIds, getSpeedMultiplier, getTotalStats, meetsRequirement } from './inventory.js';
+import { getSocketedGemDefIds, getSpeedMultiplier, getTotalStats, meetsRequirement, CURRENCIES } from './inventory.js';
 
 const WAVE_CLEAR_PAUSE = 1.4;
 const EVADE_FLASH_DURATION = 0.15;
 const DASH_DURATION = 0.35;
+// Every point of Rarity multiplies each currency's base drop chance by 1%.
+const RARITY_SCALE = 100;
 
 export class CombatScene {
   constructor(canvas, callbacks) {
@@ -31,7 +33,7 @@ export class CombatScene {
     this.spawnQueue = buildWave(this.wave);
     this.spawnTimer = 0.5;
     this.waveClearTimer = 0;
-    this.currencyEarned = 0;
+    this.currencyEarned = Object.fromEntries(Object.keys(CURRENCIES).map((id) => [id, 0]));
 
     this.speedMultiplier = getSpeedMultiplier();
     // Punch is innate; socketed gems only count if their stat requirement is
@@ -49,7 +51,7 @@ export class CombatScene {
     this.callbacks.onWaveChange(this.wave);
     this.callbacks.onHpChange(this.character.hp, this.character.maxHp);
     this.callbacks.onManaChange(this.character.mana, this.character.maxMana);
-    this.callbacks.onCurrencyChange(this.currencyEarned);
+    this.callbacks.onCurrencyChange(0);
 
     this.running = true;
     this.lastTime = performance.now();
@@ -239,9 +241,30 @@ export class CombatScene {
   _damageEnemy(enemy, damage) {
     enemy.hp -= damage;
     if (enemy.hp <= 0 && enemy.value) {
-      this.currencyEarned += enemy.value;
-      this.callbacks.onCurrencyChange(this.currencyEarned);
+      this._rollDrops(enemy.value);
       enemy.value = 0; // guard against double-counting a kill within the same frame
+    }
+  }
+
+  // enemy.value is how many independent drop rolls a kill gets per currency
+  // (elites are worth more just by rolling more times, not bigger rewards).
+  _rollDrops(rolls) {
+    const rarityMul = 1 + this.character.rarity / RARITY_SCALE;
+    let totalDropped = 0;
+    for (const currency of Object.values(CURRENCIES)) {
+      const chance = currency.dropChance * rarityMul;
+      let dropped = 0;
+      for (let i = 0; i < rolls; i++) {
+        if (Math.random() < chance) dropped += 1;
+      }
+      if (dropped > 0) {
+        this.currencyEarned[currency.id] += dropped;
+        totalDropped += dropped;
+      }
+    }
+    if (totalDropped > 0) {
+      const total = Object.values(this.currencyEarned).reduce((a, b) => a + b, 0);
+      this.callbacks.onCurrencyChange(total);
     }
   }
 
