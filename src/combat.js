@@ -1,4 +1,5 @@
 import { Character, Enemy, Projectile, buildWave } from './entities.js';
+import { getEquippedGem } from './gems.js';
 
 const WAVE_CLEAR_PAUSE = 1.4;
 
@@ -23,9 +24,12 @@ export class CombatScene {
     this.spawnQueue = buildWave(this.wave);
     this.spawnTimer = 0.5;
     this.waveClearTimer = 0;
+    this.gem = getEquippedGem();
+    this.currencyEarned = 0;
 
     this.callbacks.onWaveChange(this.wave);
     this.callbacks.onHpChange(this.character.hp, this.character.maxHp);
+    this.callbacks.onCurrencyChange(this.currencyEarned);
 
     this.running = true;
     this.lastTime = performance.now();
@@ -117,9 +121,13 @@ export class CombatScene {
     // --- character auto-attack ---
     ch.attackTimer -= dt;
     if (ch.attackTimer <= 0) {
-      const target = this._nearestEnemyInRange(ch);
-      if (target) {
-        this.projectiles.push(new Projectile(ch.x, ch.y, target.x, target.y, ch.damage));
+      const targets = this._nearestEnemiesInRange(ch, this.gem.projectiles);
+      if (targets.length > 0) {
+        for (const target of targets) {
+          this.projectiles.push(
+            new Projectile(ch.x, ch.y, target.x, target.y, ch.damage, this.gem.pierce)
+          );
+        }
         ch.attackTimer = 1 / ch.attacksPerSecond;
       }
     }
@@ -132,11 +140,20 @@ export class CombatScene {
       p.traveled += step;
       if (p.traveled > p.maxRange) { p.dead = true; continue; }
       for (const enemy of this.enemies) {
-        if (!enemy.isAlive()) continue;
+        if (!enemy.isAlive() || p.hitEnemies.has(enemy)) continue;
         const d = Math.hypot(enemy.x - p.x, enemy.y - p.y);
         if (d < enemy.radius + p.radius) {
           enemy.hp -= p.damage;
-          p.dead = true;
+          p.hitEnemies.add(enemy);
+          if (enemy.hp <= 0) {
+            this.currencyEarned += enemy.value;
+            this.callbacks.onCurrencyChange(this.currencyEarned);
+          }
+          if (p.pierceRemaining > 0) {
+            p.pierceRemaining -= 1;
+          } else {
+            p.dead = true;
+          }
           break;
         }
       }
@@ -146,21 +163,17 @@ export class CombatScene {
     this.enemies = this.enemies.filter((e) => e.isAlive());
 
     if (ch.hp <= 0 && this.running) {
-      this.callbacks.onDeath(this.wave);
+      this.callbacks.onDeath(this.wave, this.currencyEarned);
     }
   }
 
-  _nearestEnemyInRange(ch) {
-    let best = null;
-    let bestDist = ch.range;
-    for (const enemy of this.enemies) {
-      const d = Math.hypot(enemy.x - ch.x, enemy.y - ch.y);
-      if (d <= bestDist) {
-        bestDist = d;
-        best = enemy;
-      }
-    }
-    return best;
+  _nearestEnemiesInRange(ch, count) {
+    return this.enemies
+      .map((enemy) => ({ enemy, dist: Math.hypot(enemy.x - ch.x, enemy.y - ch.y) }))
+      .filter((entry) => entry.dist <= ch.range)
+      .sort((a, b) => a.dist - b.dist)
+      .slice(0, count)
+      .map((entry) => entry.enemy);
   }
 
   _render() {

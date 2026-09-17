@@ -39,6 +39,92 @@ html, body {
 
 .screen.active { display: flex; }
 
+/* --- Town screen --- */
+#town-screen {
+  align-items: center;
+  padding: env(safe-area-inset-top, 20px) 20px 28px;
+  gap: 18px;
+}
+
+.town-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.town-header h1 {
+  font-size: 1.4rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin: 0;
+}
+
+.currency-display {
+  font-size: 0.85rem;
+  color: var(--gold);
+  font-weight: 600;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+}
+
+.currency-display .currency-name {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+.npc-list {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-content: flex-start;
+  overflow-y: auto;
+  padding-top: 8px;
+}
+
+.npc-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.npc-card:active { transform: scale(0.98); }
+
+.npc-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #4a3d66, #241d38);
+  border: 2px solid var(--gold);
+  flex-shrink: 0;
+}
+
+.npc-info { display: flex; flex-direction: column; }
+.npc-name { font-weight: 600; color: var(--text); }
+.npc-title { font-size: 0.78rem; color: var(--text-dim); }
+
+.back-btn {
+  position: absolute;
+  top: env(safe-area-inset-top, 10px);
+  left: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+}
+
 /* --- Map screen --- */
 #map-screen {
   align-items: center;
@@ -135,6 +221,106 @@ html, body {
   border-radius: 6px;
   padding: 6px 10px;
   font-size: 0.75rem;
+}
+
+/* --- Shop modal --- */
+.modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(6, 4, 12, 0.6);
+  z-index: 20;
+}
+
+.modal.active { display: flex; }
+
+.modal-card {
+  width: 100%;
+  max-height: 78vh;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  border-radius: 16px 16px 0 0;
+  padding: 18px 18px calc(18px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-header h2 {
+  margin: 0;
+  color: var(--gold);
+  font-size: 1.1rem;
+}
+
+.icon-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 1.4rem;
+  line-height: 1;
+  padding: 4px 8px;
+}
+
+.shop-balance {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.gem-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gem-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gem-card.equipped { border-color: var(--gold); }
+
+.gem-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.gem-name { font-weight: 600; color: var(--text); }
+.gem-cost { font-size: 0.78rem; color: var(--gold); }
+.gem-desc { font-size: 0.82rem; color: var(--text-dim); }
+
+.gem-action {
+  align-self: flex-start;
+  border: 1px solid var(--gold);
+  background: transparent;
+  color: var(--gold);
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.gem-action:disabled {
+  border-color: var(--border);
+  color: var(--text-dim);
+}
+
+.gem-action.equipped-label {
+  border-color: var(--border);
+  color: var(--text-dim);
 }
 
 /* --- Results screen --- */

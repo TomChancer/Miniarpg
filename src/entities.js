@@ -17,8 +17,8 @@ export class Character {
 }
 
 const ENEMY_TYPES = {
-  husk: { radius: 14, speed: 55, color: '#7fae5a', hpMul: 1, dmgMul: 1 },
-  elite: { radius: 20, speed: 40, color: '#c76b3f', hpMul: 4.5, dmgMul: 2.2 },
+  husk: { radius: 14, speed: 55, color: '#7fae5a', hpMul: 1, dmgMul: 1, value: 1 },
+  elite: { radius: 20, speed: 40, color: '#c76b3f', hpMul: 4.5, dmgMul: 2.2, value: 5 },
 };
 
 export class Enemy {
@@ -33,6 +33,7 @@ export class Enemy {
     this.maxHp = Math.round((10 + wave * 4) * def.hpMul);
     this.hp = this.maxHp;
     this.damage = Math.round((3 + wave * 0.8) * def.dmgMul);
+    this.value = def.value;
     this.attackCooldown = 0.8;
     this.attackTimer = Math.random() * this.attackCooldown;
   }
@@ -43,7 +44,7 @@ export class Enemy {
 }
 
 export class Projectile {
-  constructor(x, y, targetX, targetY, damage) {
+  constructor(x, y, targetX, targetY, damage, pierce = 0) {
     this.x = x;
     this.y = y;
     this.radius = 5;
@@ -57,6 +58,8 @@ export class Projectile {
     this.vy = (dy / dist) * this.speed;
     this.traveled = 0;
     this.maxRange = 900;
+    this.pierceRemaining = pierce;
+    this.hitEnemies = new Set();
   }
 }
 

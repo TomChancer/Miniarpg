@@ -16,14 +16,35 @@
 <body>
 <div id="app">
 
-  <section id="map-screen" class="screen active">
+  <section id="town-screen" class="screen active">
+    <div class="town-header">
+      <h1>Town</h1>
+      <div id="currency-display" class="currency-display">0 <span class="currency-name">Cinder Shards</span></div>
+    </div>
+    <div id="npc-list" class="npc-list"></div>
+    <button id="town-set-out" class="primary">Set Out</button>
+    <div id="best-wave">Best wave: 0</div>
+  </section>
+
+  <section id="map-screen" class="screen">
+    <button id="map-back" class="back-btn">&larr; Town</button>
     <h1>Miniarpg</h1>
     <div id="map-node" class="map-node">
       <div class="biome-name">Ashen Grove</div>
       <div class="biome-sub">Tap to enter</div>
     </div>
-    <div id="best-wave">Best wave: 0</div>
   </section>
+
+  <div id="shop-modal" class="modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="shop-title">Shop</h2>
+        <button id="shop-close" class="icon-btn">&times;</button>
+      </div>
+      <div id="shop-balance" class="shop-balance">0 Cinder Shards</div>
+      <div id="gem-list" class="gem-list"></div>
+    </div>
+  </div>
 
   <section id="combat-screen" class="screen">
     <canvas id="combat-canvas"></canvas>
@@ -31,6 +52,7 @@
       <div id="hp-bar-outer"><div id="hp-bar-inner"></div></div>
       <div id="hud-row">
         <span id="wave-label">Wave 1</span>
+        <span id="shards-label">+0 Shards</span>
         <span id="hp-label">100 / 100</span>
       </div>
     </div>
@@ -41,7 +63,8 @@
     <h1>You Fell</h1>
     <div class="stat-line">Wave reached: <span id="result-wave" class="stat-value">1</span></div>
     <div class="stat-line">Best wave: <span id="result-best" class="stat-value">1</span></div>
-    <button id="return-btn" class="primary">Return to Map</button>
+    <div class="stat-line">Shards earned: <span id="result-earned" class="stat-value">0</span></div>
+    <button id="return-btn" class="primary">Return to Town</button>
   </section>
 
 </div>
