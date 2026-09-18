@@ -17,9 +17,15 @@ import {
   discardItem,
   getTotalStats,
   meetsRequirement,
+  canAddAffix,
+  addRandomAffix,
+  upgradeTierWithFragment,
+  upgradeTierWithShard,
+  sellItem,
 } from './inventory.js';
 import { GEMS, getGemById } from './gems.js';
 import { SLOTS, getBaseItem } from './equipment.js';
+import { itemValue } from './loot.js';
 import { getAvailableNpcs } from './npcs.js';
 import { getStock, refreshStock, removeFromStock } from './merchant.js';
 import {
@@ -38,6 +44,7 @@ import {
 import { getTree } from './talentTrees.js';
 
 const STAT_LABELS = { strength: 'STR', vitality: 'VIT', intelligence: 'INT', dexterity: 'DEX', rarity: 'RAR' };
+const TIER_LABELS = { basic: 'Basic', uncommon: 'Uncommon', rare: 'Rare', unique: 'Unique' };
 
 function requirementText(requirement) {
   if (!requirement) return 'No requirement';
@@ -284,10 +291,10 @@ function renderMerchantShop() {
     const canAfford = getBalance('cinderShard') >= stockItem.price;
     const socketsNote = stockItem.sockets.length > 0 ? `${stockItem.sockets.length} sockets &middot; ` : '';
     const card = document.createElement('div');
-    card.className = 'gem-card';
+    card.className = `gem-card tier-${stockItem.tier}`;
     card.innerHTML = `
       <div class="gem-card-top">
-        <span class="gem-name">${base.name}</span>
+        <span class="gem-name">${base.name} <span class="tier-tag">${TIER_LABELS[stockItem.tier]}</span></span>
         <span class="gem-cost">${stockItem.price} ${CURRENCIES.cinderShard.name}</span>
       </div>
       <div class="gem-desc">${socketsNote}${affixesText(stockItem.affixes)}</div>
@@ -369,6 +376,7 @@ function renderGrid(containerEl, gridData, tabKind) {
     const kindClass = tabKind === 'gems' ? 'gem' : item.kind;
     el.className = `grid-item grid-item-${kindClass}`;
     if (item.kind === 'currency') el.style.background = CURRENCIES[item.defId].color;
+    if (item.kind === 'equipment' && item.tier) el.classList.add(`tier-${item.tier}`);
     el.style.gridColumn = `${item.x + 1} / span ${item.w || 1}`;
     el.style.gridRow = `${item.y + 1} / span ${item.h || 1}`;
     el.textContent = itemLabel(item, tabKind);
@@ -427,11 +435,14 @@ function openItemModal(tabKind, item) {
         ? `<button class="gem-action" id="item-equip-main">Equip Main Hand</button>
            <button class="gem-action" id="item-equip-off">Equip Off Hand</button>`
         : `<button class="gem-action" id="item-equip">Equip</button>`;
-    itemModalTitle.textContent = base.name;
+    const sellValue = Math.round(itemValue(item) * 0.33);
+    itemModalTitle.innerHTML = `${base.name} <span class="tier-tag tier-${item.tier}">${TIER_LABELS[item.tier]}</span>`;
     itemModalBody.innerHTML = `
       <div class="gem-desc">${socketsNote}</div>
       <div class="gem-desc">${affixesText(item.affixes)}</div>
+      ${craftButtonsHtml(item)}
       ${equipButtons}
+      <button class="gem-action" id="item-sell">Sell (${sellValue} ${CURRENCIES.cinderShard.name})</button>
       <button class="gem-action" id="item-discard">Discard</button>
     `;
   }
@@ -440,7 +451,78 @@ function openItemModal(tabKind, item) {
   wireItemModalActions();
 }
 
+function craftButtonsHtml(item) {
+  if (item.tier === 'unique') return '';
+  const buttons = [];
+  if (item.tier === 'basic') {
+    const canAfford = getBalance('cinderFragment') >= 1;
+    buttons.push(
+      `<button class="gem-action" id="item-craft-fragment" ${canAfford ? '' : 'disabled'}>Upgrade to Uncommon (1 ${CURRENCIES.cinderFragment.name})</button>`
+    );
+  } else if (item.tier === 'uncommon') {
+    const canAfford = getBalance('cinderShard') >= 1;
+    buttons.push(
+      `<button class="gem-action" id="item-craft-shard-tier" ${canAfford ? '' : 'disabled'}>Upgrade to Rare (1 ${CURRENCIES.cinderShard.name})</button>`
+    );
+  }
+  if (canAddAffix(item.instanceId)) {
+    const canAfford = getBalance('cinderShard') >= 1;
+    buttons.push(
+      `<button class="gem-action" id="item-craft-affix" ${canAfford ? '' : 'disabled'}>Add Random Affix (1 ${CURRENCIES.cinderShard.name})</button>`
+    );
+  }
+  return buttons.join('');
+}
+
 function wireItemModalActions() {
+  const craftFragmentBtn = document.getElementById('item-craft-fragment');
+  if (craftFragmentBtn) {
+    craftFragmentBtn.addEventListener('click', () => {
+      const { item } = currentModalItem;
+      if (upgradeTierWithFragment(item.instanceId)) {
+        refreshInventoryScreen();
+        openItemModal('bag', getGeneralGrid().items.find((i) => i.instanceId === item.instanceId));
+      } else {
+        alert('Not enough Cinder Fragments.');
+      }
+    });
+  }
+  const craftShardTierBtn = document.getElementById('item-craft-shard-tier');
+  if (craftShardTierBtn) {
+    craftShardTierBtn.addEventListener('click', () => {
+      const { item } = currentModalItem;
+      if (upgradeTierWithShard(item.instanceId)) {
+        refreshInventoryScreen();
+        openItemModal('bag', getGeneralGrid().items.find((i) => i.instanceId === item.instanceId));
+      } else {
+        alert('Not enough Cinder Shards.');
+      }
+    });
+  }
+  const craftAffixBtn = document.getElementById('item-craft-affix');
+  if (craftAffixBtn) {
+    craftAffixBtn.addEventListener('click', () => {
+      const { item } = currentModalItem;
+      if (addRandomAffix(item.instanceId)) {
+        refreshInventoryScreen();
+        openItemModal('bag', getGeneralGrid().items.find((i) => i.instanceId === item.instanceId));
+      } else {
+        alert('Not enough Cinder Shards.');
+      }
+    });
+  }
+  const sellBtn = document.getElementById('item-sell');
+  if (sellBtn) {
+    sellBtn.addEventListener('click', () => {
+      const { item } = currentModalItem;
+      const payout = sellItem(item.instanceId);
+      if (payout !== false) {
+        closeItemModal();
+        refreshInventoryScreen();
+        refreshCurrencyDisplay();
+      }
+    });
+  }
   const discardBtn = document.getElementById('item-discard');
   if (discardBtn) {
     discardBtn.addEventListener('click', () => {
@@ -507,7 +589,7 @@ function openEquippedModal(slot) {
           .join('')}</div>`
       : '';
 
-  itemModalTitle.textContent = base.name;
+  itemModalTitle.innerHTML = `${base.name} <span class="tier-tag tier-${item.tier}">${TIER_LABELS[item.tier]}</span>`;
   itemModalBody.innerHTML = `
     <div class="gem-desc">${affixesText(item.affixes)}</div>
     ${socketsHtml}

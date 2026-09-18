@@ -4,6 +4,12 @@ import { BASE_ITEMS, BASE_ITEM_IDS, SLOTS, SLOT_CATEGORY, getBaseItem } from '..
 
 const VALID_CATEGORIES = ['helmet', 'chest', 'legs', 'ring', 'amulet', 'trinket', 'weapon'];
 const VALID_STATS = ['strength', 'vitality', 'intelligence', 'dexterity', 'rarity', 'attackSpeedPct'];
+// Main attributes are prefixes; everything else (currently just Rarity and
+// Attack Speed) is a suffix.
+const EXPECTED_AFFIX_TYPE = {
+  strength: 'prefix', vitality: 'prefix', intelligence: 'prefix', dexterity: 'prefix',
+  rarity: 'suffix', attackSpeedPct: 'suffix',
+};
 
 test('every base item has a valid category, shape, socket cap, and non-empty stat pool', () => {
   for (const item of Object.values(BASE_ITEMS)) {
@@ -14,6 +20,7 @@ test('every base item has a valid category, shape, socket cap, and non-empty sta
     for (const entry of item.statPool) {
       assert.ok(VALID_STATS.includes(entry.stat), `${item.id} pool has an unknown stat "${entry.stat}"`);
       assert.ok(entry.min <= entry.max);
+      assert.equal(entry.type, EXPECTED_AFFIX_TYPE[entry.stat], `${item.id}'s ${entry.stat} entry has the wrong prefix/suffix tag`);
     }
   }
 });

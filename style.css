@@ -9,6 +9,10 @@
   --mana: #4f8fe0;
   --text: #ece6f7;
   --text-dim: #9c93b5;
+  --tier-basic: #9c93b5;
+  --tier-uncommon: #4caf6a;
+  --tier-rare: #e0c44f;
+  --tier-unique: #e0824f;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -302,6 +306,28 @@ button.secondary:active { transform: scale(0.97); }
 .grid-item-currency { background: var(--gold); }
 .grid-item-equipment { background: #8fa6c9; }
 .grid-item-gem { background: #e0a7e0; }
+
+.grid-item.tier-basic { box-shadow: inset 0 0 0 2px var(--tier-basic); }
+.grid-item.tier-uncommon { box-shadow: inset 0 0 0 2px var(--tier-uncommon); }
+.grid-item.tier-rare { box-shadow: inset 0 0 0 2px var(--tier-rare); }
+.grid-item.tier-unique { box-shadow: inset 0 0 0 2px var(--tier-unique); }
+
+.tier-tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  vertical-align: middle;
+}
+.tier-tag.tier-basic, .gem-card.tier-basic .tier-tag { color: var(--tier-basic); }
+.tier-tag.tier-uncommon, .gem-card.tier-uncommon .tier-tag { color: var(--tier-uncommon); }
+.tier-tag.tier-rare, .gem-card.tier-rare .tier-tag { color: var(--tier-rare); }
+.tier-tag.tier-unique, .gem-card.tier-unique .tier-tag { color: var(--tier-unique); }
+
+.gem-card.tier-basic { border-left: 3px solid var(--tier-basic); }
+.gem-card.tier-uncommon { border-left: 3px solid var(--tier-uncommon); }
+.gem-card.tier-rare { border-left: 3px solid var(--tier-rare); }
+.gem-card.tier-unique { border-left: 3px solid var(--tier-unique); }
 
 .socket-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
 

@@ -2,6 +2,7 @@ import { findFreeSpot } from './grid.js';
 import { SLOTS, SLOT_CATEGORY, getBaseItem } from './equipment.js';
 import { getGemById } from './gems.js';
 import { getPlayerStatBonuses, getMapStatBonuses } from './progression.js';
+import { pickAffixType, pickMissingType, rollOneAffix, itemValue } from './loot.js';
 
 // Cinder currency buys gear; Void currency buys skill gems. Shards are the
 // common/base tier of each family, Fragments the rare tier — dropChance is
@@ -21,9 +22,9 @@ const GENERAL_H = 8;
 const GEM_W = 5;
 const GEM_H = 6;
 
-// Bumped: gear is now rolled loot (per-instance sockets/affixes) instead of
-// fixed purchasable defs, and the equipped shape grew from 3 slots to 10.
-const STATE_KEY = 'miniarpg.inventory.v4';
+// Bumped: gear items now carry a `tier` (Basic/Uncommon/Rare/Unique) driving
+// their affix caps.
+const STATE_KEY = 'miniarpg.inventory.v5';
 
 function defaultState() {
   return {
@@ -254,6 +255,83 @@ export function discardItem(kind, instanceId) {
     s.general = s.general.filter((it) => it.instanceId !== instanceId);
   }
   save();
+}
+
+// --- crafting & selling (bag items only — unequip first to craft or sell) ---
+
+function findBagGear(s, instanceId) {
+  return s.general.find((it) => it.instanceId === instanceId && it.kind === 'equipment');
+}
+
+// Cinder Shard: adds one random affix of whichever type still has room,
+// gated by the item's current tier cap and its base item actually offering
+// an unused stat of that type. Unique items (once they exist) can never be
+// crafted on.
+export function canAddAffix(instanceId) {
+  const s = load();
+  const item = findBagGear(s, instanceId);
+  if (!item || item.tier === 'unique') return false;
+  return pickAffixType(item, getBaseItem(item.defId), item.tier) !== null;
+}
+
+export function addRandomAffix(instanceId) {
+  const s = load();
+  const item = findBagGear(s, instanceId);
+  if (!item || item.tier === 'unique') return false;
+  const base = getBaseItem(item.defId);
+  const type = pickAffixType(item, base, item.tier);
+  if (!type) return false;
+  const rolled = rollOneAffix(base, type, item.affixes);
+  if (!rolled) return false;
+  if (!spendCurrency('cinderShard', 1)) return false;
+  item.affixes[rolled.stat] = rolled.amount;
+  save();
+  return true;
+}
+
+// Cinder Fragment: Basic -> Uncommon, adding whichever affix type the item
+// is missing so it lands at 2/2.
+export function upgradeTierWithFragment(instanceId) {
+  const s = load();
+  const item = findBagGear(s, instanceId);
+  if (!item || item.tier !== 'basic') return false;
+  const base = getBaseItem(item.defId);
+  const type = pickMissingType(item, base);
+  const rolled = type ? rollOneAffix(base, type, item.affixes) : null;
+  if (!spendCurrency('cinderFragment', 1)) return false;
+  if (rolled) item.affixes[rolled.stat] = rolled.amount;
+  item.tier = 'uncommon';
+  save();
+  return true;
+}
+
+// Cinder Shard: Uncommon -> Rare, adding 1 of whichever affix type is
+// missing — the item lands at 3/4, not automatically filled out to 4/4.
+export function upgradeTierWithShard(instanceId) {
+  const s = load();
+  const item = findBagGear(s, instanceId);
+  if (!item || item.tier !== 'uncommon') return false;
+  const base = getBaseItem(item.defId);
+  const type = pickMissingType(item, base);
+  const rolled = type ? rollOneAffix(base, type, item.affixes) : null;
+  if (!spendCurrency('cinderShard', 1)) return false;
+  if (rolled) item.affixes[rolled.stat] = rolled.amount;
+  item.tier = 'rare';
+  save();
+  return true;
+}
+
+// Sells a bag item back for ~33% of its rolled value, credited as Cinder Shards.
+export function sellItem(instanceId) {
+  const s = load();
+  const idx = s.general.findIndex((it) => it.instanceId === instanceId && it.kind === 'equipment');
+  if (idx === -1) return false;
+  const item = s.general[idx];
+  const payout = Math.round(itemValue(item) * 0.33);
+  s.general.splice(idx, 1);
+  save();
+  addCurrency('cinderShard', payout);
+  return payout;
 }
 
 // --- combat-facing derived stats ---

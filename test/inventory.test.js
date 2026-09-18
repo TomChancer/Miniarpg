@@ -3,17 +3,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as inv from '../src/inventory.js';
 
-function helmetItem(intelligence = 3) {
-  return { kind: 'equipment', defId: 'helmet', w: 2, h: 2, sockets: [null, null, null, null], affixes: { intelligence } };
+function helmetItem(intelligence = 3, tier = 'basic') {
+  return { kind: 'equipment', defId: 'helmet', tier, w: 2, h: 2, sockets: [null, null, null, null], affixes: { intelligence } };
 }
 function sword1h(strength = 2) {
-  return { kind: 'equipment', defId: 'sword_1h', w: 1, h: 3, sockets: [null, null, null], affixes: { strength } };
+  return { kind: 'equipment', defId: 'sword_1h', tier: 'basic', w: 1, h: 3, sockets: [null, null, null], affixes: { strength } };
 }
 function sword2h(strength = 2) {
-  return { kind: 'equipment', defId: 'sword_2h', w: 1, h: 4, sockets: new Array(6).fill(null), affixes: { strength } };
+  return { kind: 'equipment', defId: 'sword_2h', tier: 'basic', w: 1, h: 4, sockets: new Array(6).fill(null), affixes: { strength } };
 }
-function ringItem(rarity = 2) {
-  return { kind: 'equipment', defId: 'ring', w: 1, h: 1, sockets: [], affixes: { rarity } };
+function ringItem(rarity = 2, tier = 'basic') {
+  return { kind: 'equipment', defId: 'ring', tier, w: 1, h: 1, sockets: [], affixes: { rarity } };
 }
 
 // One narrative per file (node:test runs a file in its own process, but
@@ -171,4 +171,70 @@ test('inventory: a full gem pouch blocks further purchases', () => {
   const capacity = w * h;
   for (let i = 0; i < capacity; i++) assert.equal(inv.addGem('crush'), true, `slot ${i} should still fit`);
   assert.equal(inv.addGem('crush'), false);
+});
+
+test('inventory: tier crafting with Cinder Shards/Fragments', async (t) => {
+  await t.test('a Basic item with no room refuses a Cinder Shard affix add', () => {
+    inv.addLootItem(ringItem(2, 'basic')); // already at 1/1 for Basic
+    const ring = inv.getGeneralGrid().items.find((i) => i.defId === 'ring' && i.tier === 'basic');
+    inv.addCurrency('cinderShard', 10);
+    const before = inv.getBalance('cinderShard');
+    assert.equal(inv.canAddAffix(ring.instanceId), false);
+    assert.equal(inv.addRandomAffix(ring.instanceId), false);
+    assert.equal(inv.getBalance('cinderShard'), before); // no currency spent on failure
+  });
+
+  await t.test('a Cinder Fragment upgrades Basic -> Uncommon, filling in the missing affix type', () => {
+    const ring = inv.getGeneralGrid().items.find((i) => i.defId === 'ring' && i.tier === 'basic');
+    inv.addCurrency('cinderFragment', 5);
+    const ok = inv.upgradeTierWithFragment(ring.instanceId);
+    assert.equal(ok, true);
+    const upgraded = inv.getGeneralGrid().items.find((i) => i.instanceId === ring.instanceId);
+    assert.equal(upgraded.tier, 'uncommon');
+    assert.equal(Object.keys(upgraded.affixes).length, 2); // rarity (suffix) + one prefix now
+    assert.ok('rarity' in upgraded.affixes);
+    const hasPrefix = ['strength', 'vitality', 'intelligence', 'dexterity'].some((s) => s in upgraded.affixes);
+    assert.ok(hasPrefix, 'expected the missing prefix to be filled in');
+  });
+
+  await t.test('a Cinder Shard upgrades Uncommon -> Rare, landing at 3/4 rather than a full 4/4', () => {
+    const ring = inv.getGeneralGrid().items.find((i) => i.defId === 'ring' && i.tier === 'uncommon');
+    inv.addCurrency('cinderShard', 5);
+    const ok = inv.upgradeTierWithShard(ring.instanceId);
+    assert.equal(ok, true);
+    const upgraded = inv.getGeneralGrid().items.find((i) => i.instanceId === ring.instanceId);
+    assert.equal(upgraded.tier, 'rare');
+    assert.equal(Object.keys(upgraded.affixes).length, 3);
+  });
+
+  await t.test('once Rare, a Cinder Shard can add the final random affix up to the 4-cap', () => {
+    const ring = inv.getGeneralGrid().items.find((i) => i.defId === 'ring' && i.tier === 'rare');
+    const before = inv.getBalance('cinderShard');
+    assert.equal(inv.canAddAffix(ring.instanceId), true);
+    const ok = inv.addRandomAffix(ring.instanceId);
+    assert.equal(ok, true);
+    assert.equal(inv.getBalance('cinderShard'), before - 1);
+    const filled = inv.getGeneralGrid().items.find((i) => i.instanceId === ring.instanceId);
+    assert.equal(Object.keys(filled.affixes).length, 4);
+    assert.equal(inv.canAddAffix(ring.instanceId), false); // full for its tier now
+  });
+
+  await t.test('crafting functions fail cleanly on the wrong tier or an unknown item', () => {
+    inv.addLootItem(ringItem(2, 'basic'));
+    const basicRing = inv.getGeneralGrid().items.find((i) => i.defId === 'ring' && i.tier === 'basic');
+    assert.equal(inv.upgradeTierWithShard(basicRing.instanceId), false); // needs uncommon
+    assert.equal(inv.upgradeTierWithFragment(999999), false);
+  });
+});
+
+test('inventory: selling returns roughly a third of the item value as Cinder Shards', () => {
+  inv.addLootItem(helmetItem(4, 'basic'));
+  const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet' && i.tier === 'basic');
+  const before = inv.getBalance('cinderShard');
+  const payout = inv.sellItem(helmet.instanceId);
+  assert.ok(payout > 0);
+  assert.equal(inv.getBalance('cinderShard'), before + payout);
+  assert.equal(inv.getGeneralGrid().items.some((i) => i.instanceId === helmet.instanceId), false);
+
+  assert.equal(inv.sellItem(999999), false);
 });
