@@ -10,6 +10,13 @@ export const NPCS = [
     unlocked: () => true,
     service: 'gem_shop',
   },
+  {
+    id: 'merchant',
+    name: 'Bram',
+    title: 'Merchant',
+    unlocked: () => true,
+    service: 'merchant_shop',
+  },
 ];
 
 export function getAvailableNpcs() {

@@ -3,10 +3,23 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as inv from '../src/inventory.js';
 
+function helmetItem(intelligence = 3) {
+  return { kind: 'equipment', defId: 'helmet', w: 2, h: 2, sockets: [null, null, null, null], affixes: { intelligence } };
+}
+function sword1h(strength = 2) {
+  return { kind: 'equipment', defId: 'sword_1h', w: 1, h: 3, sockets: [null, null, null], affixes: { strength } };
+}
+function sword2h(strength = 2) {
+  return { kind: 'equipment', defId: 'sword_2h', w: 1, h: 4, sockets: new Array(6).fill(null), affixes: { strength } };
+}
+function ringItem(rarity = 2) {
+  return { kind: 'equipment', defId: 'ring', w: 1, h: 1, sockets: [], affixes: { rarity } };
+}
+
 // One narrative per file (node:test runs a file in its own process, but
 // module-level state like inventory.js's cache persists across test()
 // blocks within it) — so these run in order, building on each other.
-test('inventory: currency, equipment, and sockets', async (t) => {
+test('inventory: currency, loot items, and sockets', async (t) => {
   await t.test('currency splits into stacks at the cap and merges into existing ones first', () => {
     inv.addCurrency('cinderShard', 25);
     assert.equal(inv.getBalance('cinderShard'), 25);
@@ -34,42 +47,41 @@ test('inventory: currency, equipment, and sockets', async (t) => {
     assert.equal(inv.getGeneralGrid().items.filter((i) => i.defId === 'cinderShard').length, 1);
   });
 
-  await t.test('buying gear places a shaped item in the bag', () => {
-    inv.addCurrency('cinderShard', 100);
-    const ok = inv.buyEquipment('worn_helmet');
+  await t.test('addLootItem places a shaped item in the bag', () => {
+    const ok = inv.addLootItem(helmetItem());
     assert.equal(ok, true);
-    const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'worn_helmet');
+    const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet');
     assert.ok(helmet);
     assert.equal(helmet.w, 2);
     assert.equal(helmet.h, 2);
-    assert.deepEqual(helmet.sockets, [null, null, null]);
+    assert.deepEqual(helmet.sockets, [null, null, null, null]);
   });
 
   await t.test('equipping moves the item out of the bag and into the paperdoll', () => {
-    const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'worn_helmet');
+    const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet');
     const ok = inv.equipItem(helmet.instanceId);
     assert.equal(ok, true);
-    assert.equal(inv.getGeneralGrid().items.some((i) => i.defId === 'worn_helmet'), false);
-    assert.equal(inv.getEquipped().helmet.defId, 'worn_helmet');
+    assert.equal(inv.getGeneralGrid().items.some((i) => i.defId === 'helmet'), false);
+    assert.equal(inv.getEquipped().helmet.defId, 'helmet');
   });
 
   await t.test('equipping a second helmet swaps the first back into the bag', () => {
-    inv.buyEquipment('worn_helmet');
-    const secondHelmet = inv.getGeneralGrid().items.find((i) => i.defId === 'worn_helmet');
+    inv.addLootItem(helmetItem(4));
+    const secondHelmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet');
     inv.equipItem(secondHelmet.instanceId);
-    assert.equal(inv.getGeneralGrid().items.filter((i) => i.defId === 'worn_helmet').length, 1);
+    assert.equal(inv.getGeneralGrid().items.filter((i) => i.defId === 'helmet').length, 1);
     assert.equal(inv.getEquipped().helmet.instanceId, secondHelmet.instanceId);
   });
 
-  await t.test('getTotalStats folds in the equipped helmet\'s intelligence bonus', () => {
+  await t.test("getTotalStats folds in the equipped helmet's own rolled affix", () => {
     const stats = inv.getTotalStats();
-    assert.equal(stats.intelligence, 5 + 3); // base 5 + Worn Helmet's +3
+    assert.equal(stats.intelligence, 5 + 4); // base 5 + this helmet instance's rolled +4
   });
 
   await t.test('socketGem is blocked until the stat requirement is met, then succeeds', () => {
     inv.addCurrency('voidShard', 100);
     inv.addGem('cinder_shot'); // requires 8 intelligence; we only have it because helmet is equipped
-    const blocked = inv.socketGem('helmet', 5, 'cinder_shot'); // helmet only has 3 sockets (indices 0-2)
+    const blocked = inv.socketGem('helmet', 9, 'cinder_shot'); // helmet only has 4 sockets (indices 0-3)
     assert.equal(blocked, false); // invalid socket index
 
     const ok = inv.socketGem('helmet', 0, 'cinder_shot');
@@ -91,6 +103,62 @@ test('inventory: currency, equipment, and sockets', async (t) => {
     assert.equal(ok, true);
     assert.equal(inv.getEquipped().helmet, null);
     assert.ok(inv.getGeneralGrid().items.some((i) => i.instanceId === before.instanceId));
+  });
+});
+
+test('inventory: multi-slot jewelry auto-assignment', () => {
+  inv.addLootItem(ringItem(2));
+  inv.addLootItem(ringItem(5));
+  const rings = inv.getGeneralGrid().items.filter((i) => i.defId === 'ring');
+
+  assert.equal(inv.equipItem(rings[0].instanceId), true);
+  assert.equal(inv.getEquipped().ring1.instanceId, rings[0].instanceId);
+
+  assert.equal(inv.equipItem(rings[1].instanceId), true);
+  assert.equal(inv.getEquipped().ring2.instanceId, rings[1].instanceId);
+  assert.equal(inv.getEquipped().ring1.instanceId, rings[0].instanceId); // ring1 untouched
+});
+
+test('inventory: weapon/offhand handedness rules', async (t) => {
+  await t.test('a two-handed weapon equips cleanly to the weapon slot', () => {
+    inv.addLootItem(sword2h());
+    const item = inv.getGeneralGrid().items.find((i) => i.defId === 'sword_2h');
+    assert.equal(inv.equipItem(item.instanceId), true);
+    assert.equal(inv.getEquipped().weapon.defId, 'sword_2h');
+  });
+
+  await t.test('a one-handed weapon cannot go to offhand while mainhand is two-handed', () => {
+    inv.addLootItem(sword1h());
+    const oneHander = inv.getGeneralGrid().items.find((i) => i.defId === 'sword_1h');
+    assert.equal(inv.equipItem(oneHander.instanceId, 'offhand'), false);
+  });
+
+  await t.test('equipping a two-handed weapon while an offhand is occupied is rejected', () => {
+    // swap mainhand to the 1h sword first so we can legally fill offhand
+    const oneHander = inv.getGeneralGrid().items.find((i) => i.defId === 'sword_1h');
+    assert.equal(inv.equipItem(oneHander.instanceId, 'weapon'), true);
+    inv.addLootItem(sword1h(3));
+    const secondOneHander = inv.getGeneralGrid().items.find((i) => i.defId === 'sword_1h');
+    assert.equal(inv.equipItem(secondOneHander.instanceId, 'offhand'), true);
+
+    inv.addLootItem(sword2h());
+    const twoHander = inv.getGeneralGrid().items.find((i) => i.defId === 'sword_2h' && inv.getEquipped().weapon.instanceId !== i.instanceId);
+    assert.equal(inv.equipItem(twoHander.instanceId, 'weapon'), false); // offhand still occupied
+  });
+
+  await t.test('getWeaponMods reports dual-wield range and damage effects while both hands hold 1h swords', () => {
+    const mods = inv.getWeaponMods();
+    assert.equal(mods.damageMultiplier, 0.8);
+    assert.equal(mods.rangeMultiplier, 0.8); // sword_1h's own multiplier, taken from mainhand
+  });
+
+  await t.test('unequipping the offhand then allows a two-handed weapon to take the mainhand', () => {
+    assert.equal(inv.unequipItem('offhand'), true);
+    const twoHander = inv.getGeneralGrid().items.find((i) => i.defId === 'sword_2h');
+    assert.equal(inv.equipItem(twoHander.instanceId, 'weapon'), true);
+    const mods = inv.getWeaponMods();
+    assert.equal(mods.damageMultiplier, 1); // no longer dual-wielding
+    assert.equal(mods.rangeMultiplier, 1.0);
   });
 });
 

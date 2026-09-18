@@ -1,14 +1,21 @@
 import { Character, Enemy, Projectile, buildWave } from './entities.js';
 import { PUNCH_SKILL, getGemById } from './gems.js';
-import { getSocketedGemDefIds, getSpeedMultiplier, getTotalStats, meetsRequirement, CURRENCIES } from './inventory.js';
+import {
+  getSocketedGemDefIds, getSpeedMultiplier, getTotalStats, meetsRequirement, getWeaponMods, CURRENCIES,
+} from './inventory.js';
 import { getPlayerKeystoneMods, getMapModifiers } from './progression.js';
 import { getMapDef } from './maps.js';
+import { BASE_ITEM_IDS } from './equipment.js';
+import { generateLootItem } from './loot.js';
 
 const WAVE_CLEAR_PAUSE = 1.4;
 const EVADE_FLASH_DURATION = 0.15;
 const DASH_DURATION = 0.35;
 // Every point of Rarity multiplies each currency's base drop chance by 1%.
 const RARITY_SCALE = 100;
+// Trash mobs have a small independent chance to drop a random gear item
+// (rarity-scaled, same formula as currency); bosses always drop one.
+const GEAR_DROP_CHANCE = 0.015;
 
 export class CombatScene {
   constructor(canvas, callbacks) {
@@ -29,7 +36,13 @@ export class CombatScene {
 
     const stats = getTotalStats();
     const keystoneMods = getPlayerKeystoneMods();
-    this.character = new Character(this.width / 2, this.height * 0.62, stats, keystoneMods);
+    const weaponMods = getWeaponMods();
+    this.weaponRangeMultiplier = weaponMods.rangeMultiplier;
+    const combinedMods = {
+      ...keystoneMods,
+      damageMultiplier: keystoneMods.damageMultiplier * weaponMods.damageMultiplier,
+    };
+    this.character = new Character(this.width / 2, this.height * 0.62, stats, combinedMods);
     this.enemies = [];
     this.projectiles = [];
     this.effects = [];
@@ -46,6 +59,7 @@ export class CombatScene {
     this.waveClearTimer = 0;
     this.currencyEarned = Object.fromEntries(Object.keys(CURRENCIES).map((id) => [id, 0]));
     this.xpEarned = 0;
+    this.itemsEarned = [];
 
     this.speedMultiplier = getSpeedMultiplier() + this.character.speedMultiplierBonus;
     // Punch is innate; socketed gems only count if their stat requirement is
@@ -131,7 +145,7 @@ export class CombatScene {
         if (this.bossPhase) {
           if (!this.ended) {
             this.ended = true;
-            this.callbacks.onMapComplete(this.currencyEarned, this.xpEarned);
+            this.callbacks.onMapComplete(this.currencyEarned, this.xpEarned, this.itemsEarned);
           }
           return;
         }
@@ -224,7 +238,7 @@ export class CombatScene {
 
     if (ch.hp <= 0 && !this.ended) {
       this.ended = true;
-      this.callbacks.onDeath(this.wave, this.currencyEarned, this.xpEarned);
+      this.callbacks.onDeath(this.wave, this.currencyEarned, this.xpEarned, this.itemsEarned);
     }
   }
 
@@ -232,13 +246,16 @@ export class CombatScene {
     const ch = this.character;
     if (ch.mana < def.manaCost) return false;
     const dmg = ch.damage * ch.damageMultiplier(def.scalingStat);
+    // Punch is gear-independent; every other skill's range is scaled by the
+    // equipped weapon type (1h shortest -> 2h sword -> staff -> bow longest).
+    const range = def.innate ? def.range : def.range * this.weaponRangeMultiplier;
 
     if (def.kind === 'projectile') {
-      const target = this._nearestEnemy(def.range);
+      const target = this._nearestEnemy(range);
       if (!target) return false;
       this.projectiles.push(new Projectile(ch.x, ch.y, target.x, target.y, dmg, def.pierce || 0));
     } else if (def.kind === 'melee') {
-      const target = this._nearestEnemy(def.range);
+      const target = this._nearestEnemy(range);
       if (!target) return false;
       this._damageEnemy(target, dmg);
       this.effects.push({
@@ -246,17 +263,17 @@ export class CombatScene {
         life: 0.15, maxLife: 0.15,
       });
     } else if (def.kind === 'line') {
-      const target = this._nearestEnemy(def.range);
+      const target = this._nearestEnemy(range);
       if (!target) return false;
       const angle = Math.atan2(target.y - ch.y, target.x - ch.x);
-      const hits = this._enemiesInLine(angle, def.range, def.lineWidth / 2);
+      const hits = this._enemiesInLine(angle, range, def.lineWidth / 2);
       for (const enemy of hits) this._damageEnemy(enemy, dmg);
       this.effects.push({
-        type: 'line', x: ch.x, y: ch.y, angle, range: def.range, width: def.lineWidth,
+        type: 'line', x: ch.x, y: ch.y, angle, range, width: def.lineWidth,
         life: 0.2, maxLife: 0.2,
       });
     } else if (def.kind === 'dash') {
-      const target = this._nearestEnemy(def.range);
+      const target = this._nearestEnemy(range);
       if (!target) return false;
       this._damageEnemy(target, dmg);
       this.dash = { toX: target.x, toY: target.y, elapsed: 0, duration: DASH_DURATION };
@@ -272,9 +289,18 @@ export class CombatScene {
     enemy.hp -= damage;
     if (enemy.hp <= 0 && enemy.value) {
       this._rollDrops(enemy.value);
+      this._rollGearDrop(enemy);
       this.xpEarned += enemy.xpValue * (1 + this.mapMods.xpPct / 100);
       enemy.value = 0; // guard against double-counting a kill within the same frame
     }
+  }
+
+  _rollGearDrop(enemy) {
+    const rarityMul = 1 + this.character.rarity / RARITY_SCALE;
+    const guaranteed = enemy.type === 'boss';
+    if (!guaranteed && Math.random() >= GEAR_DROP_CHANCE * rarityMul) return;
+    const baseId = BASE_ITEM_IDS[Math.floor(Math.random() * BASE_ITEM_IDS.length)];
+    this.itemsEarned.push(generateLootItem(baseId));
   }
 
   // enemy.value is how many independent drop rolls a kill gets per currency

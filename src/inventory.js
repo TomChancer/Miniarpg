@@ -1,5 +1,5 @@
 import { findFreeSpot } from './grid.js';
-import { getEquipmentDef, SLOTS } from './equipment.js';
+import { SLOTS, SLOT_CATEGORY, getBaseItem } from './equipment.js';
 import { getGemById } from './gems.js';
 import { getPlayerStatBonuses, getMapStatBonuses } from './progression.js';
 
@@ -21,15 +21,15 @@ const GENERAL_H = 8;
 const GEM_W = 5;
 const GEM_H = 6;
 
-// Bumped because currencies are no longer a single type — old single-shard
-// stacks can't map cleanly onto the new per-currency ids.
-const STATE_KEY = 'miniarpg.inventory.v3';
+// Bumped: gear is now rolled loot (per-instance sockets/affixes) instead of
+// fixed purchasable defs, and the equipped shape grew from 3 slots to 10.
+const STATE_KEY = 'miniarpg.inventory.v4';
 
 function defaultState() {
   return {
-    general: [], // { instanceId, kind: 'currency'|'equipment', defId, x, y, w, h, quantity?, sockets? }
-    gems: [], // { instanceId, defId, x, y }  (always 1x1)
-    equipped: { helmet: null, chest: null, boots: null },
+    general: [], // { instanceId, kind: 'currency'|'equipment', defId, x, y, w, h, quantity?, sockets?, affixes? }
+    gems: [], // { instanceId, defId, x, y, w:1, h:1 }
+    equipped: Object.fromEntries(SLOTS.map((s) => [s, null])),
   };
 }
 
@@ -59,6 +59,15 @@ function save() {
 
 function makeId() {
   return nextInstanceId++;
+}
+
+function placeInBag(s, item) {
+  const spot = findFreeSpot(s.general, GENERAL_W, GENERAL_H, item.w, item.h);
+  if (!spot) return false;
+  item.x = spot.x;
+  item.y = spot.y;
+  s.general.push(item);
+  return true;
 }
 
 export function getGeneralGrid() {
@@ -157,47 +166,43 @@ function removeOneGemByDef(defId) {
   return true;
 }
 
-// --- equipment ---
+// --- equipment (rolled loot instances, see loot.js) ---
 
-export function buyEquipment(defId) {
-  const def = getEquipmentDef(defId);
+export function addLootItem(item) {
   const s = load();
-  const spot = findFreeSpot(s.general, GENERAL_W, GENERAL_H, def.shape.w, def.shape.h);
+  const spot = findFreeSpot(s.general, GENERAL_W, GENERAL_H, item.w, item.h);
   if (!spot) return false;
-  s.general.push({
-    instanceId: makeId(),
-    kind: 'equipment',
-    defId,
-    x: spot.x,
-    y: spot.y,
-    w: def.shape.w,
-    h: def.shape.h,
-    sockets: new Array(def.sockets).fill(null),
-  });
+  s.general.push({ ...item, instanceId: makeId(), x: spot.x, y: spot.y });
   save();
   return true;
 }
 
-export function equipItem(instanceId) {
+export function equipItem(instanceId, targetSlot = null) {
   const s = load();
   const idx = s.general.findIndex((it) => it.instanceId === instanceId);
   if (idx === -1) return false;
   const item = s.general[idx];
-  const def = getEquipmentDef(item.defId);
-  const slot = def.slot;
-  const current = s.equipped[slot];
+  const base = getBaseItem(item.defId);
 
+  let slot = targetSlot;
+  if (!slot) {
+    if (base.slotCategory === 'ring') slot = s.equipped.ring1 ? 'ring2' : 'ring1';
+    else if (base.slotCategory === 'trinket') slot = s.equipped.trinket1 ? 'trinket2' : 'trinket1';
+    else if (base.slotCategory === 'weapon') slot = 'weapon';
+    else slot = base.slotCategory;
+  }
+
+  if (!SLOTS.includes(slot) || SLOT_CATEGORY[slot] !== base.slotCategory) return false;
+  if (slot === 'offhand' && base.handedness !== 'one') return false;
+  if (slot === 'offhand' && getBaseItem(s.equipped.weapon?.defId)?.handedness !== 'one') return false;
+  if (slot === 'weapon' && base.handedness === 'two' && s.equipped.offhand) return false; // unequip offhand first
+
+  const current = s.equipped[slot];
   s.general.splice(idx, 1);
 
-  if (current) {
-    const spot = findFreeSpot(s.general, GENERAL_W, GENERAL_H, current.w, current.h);
-    if (!spot) {
-      s.general.splice(idx, 0, item);
-      return false;
-    }
-    current.x = spot.x;
-    current.y = spot.y;
-    s.general.push(current);
+  if (current && !placeInBag(s, current)) {
+    s.general.splice(idx, 0, item); // no room to swap out the current piece — undo
+    return false;
   }
 
   delete item.x;
@@ -211,11 +216,7 @@ export function unequipItem(slot) {
   const s = load();
   const item = s.equipped[slot];
   if (!item) return false;
-  const spot = findFreeSpot(s.general, GENERAL_W, GENERAL_H, item.w, item.h);
-  if (!spot) return false;
-  item.x = spot.x;
-  item.y = spot.y;
-  s.general.push(item);
+  if (!placeInBag(s, item)) return false;
   s.equipped[slot] = null;
   save();
   return true;
@@ -276,10 +277,25 @@ export function getSpeedMultiplier() {
   for (const slot of SLOTS) {
     const item = s.equipped[slot];
     if (!item) continue;
-    const def = getEquipmentDef(item.defId);
-    bonus += def.stats?.attackSpeedPct || 0;
+    bonus += item.affixes?.attackSpeedPct || 0;
   }
   return 1 + bonus;
+}
+
+// Weapon type sets the range multiplier applied to socketed (non-innate)
+// skills; dual-wielding two one-handed weapons trades a damage penalty for
+// the extra stat affixes and sockets of a second weapon.
+export function getWeaponMods() {
+  const s = load();
+  const weapon = s.equipped.weapon;
+  const offhand = s.equipped.offhand;
+  const weaponBase = weapon ? getBaseItem(weapon.defId) : null;
+  const offhandBase = offhand ? getBaseItem(offhand.defId) : null;
+  const dualWielding = !!(weaponBase?.handedness === 'one' && offhandBase?.handedness === 'one');
+  return {
+    rangeMultiplier: weaponBase ? weaponBase.rangeMultiplier : 1,
+    damageMultiplier: dualWielding ? 0.8 : 1,
+  };
 }
 
 export function getTotalStats() {
@@ -288,9 +304,8 @@ export function getTotalStats() {
   for (const slot of SLOTS) {
     const item = s.equipped[slot];
     if (!item) continue;
-    const def = getEquipmentDef(item.defId);
     for (const key of Object.keys(BASE_STATS)) {
-      stats[key] += def.stats?.[key] || 0;
+      stats[key] += item.affixes?.[key] || 0;
     }
   }
   const playerBonuses = getPlayerStatBonuses();

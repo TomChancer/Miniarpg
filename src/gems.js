@@ -17,6 +17,7 @@ export const PUNCH_SKILL = {
   manaCost: 0,
   scalingStat: 'strength',
   requirement: null,
+  innate: true, // gear-independent: no weapon range multiplier applies to it either
 };
 
 export const GEMS = [

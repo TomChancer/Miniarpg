@@ -8,7 +8,7 @@ import {
   getGeneralGrid,
   getGemGrid,
   getEquipped,
-  buyEquipment,
+  addLootItem,
   equipItem,
   unequipItem,
   addGem,
@@ -19,8 +19,9 @@ import {
   meetsRequirement,
 } from './inventory.js';
 import { GEMS, getGemById } from './gems.js';
-import { EQUIPMENT_ITEMS, getEquipmentDef, SLOTS } from './equipment.js';
+import { SLOTS, getBaseItem } from './equipment.js';
 import { getAvailableNpcs } from './npcs.js';
+import { getStock, refreshStock, removeFromStock } from './merchant.js';
 import {
   getLevel,
   getXp,
@@ -45,6 +46,15 @@ function requirementText(requirement) {
 
 function currencyCost(def) {
   return `${def.cost} ${CURRENCIES[def.currency].name}`;
+}
+
+function affixesText(affixes) {
+  if (!affixes || Object.keys(affixes).length === 0) return 'No affixes';
+  return Object.entries(affixes)
+    .map(([stat, amount]) =>
+      stat === 'attackSpeedPct' ? `+${Math.round(amount * 100)}% Attack Speed` : `+${amount} ${STAT_LABELS[stat]}`
+    )
+    .join(', ');
 }
 
 const screens = {
@@ -73,6 +83,7 @@ const bestWaveEl = document.getElementById('best-wave');
 const resultWaveEl = document.getElementById('result-wave');
 const resultBestEl = document.getElementById('result-best');
 const resultEarnedEl = document.getElementById('result-earned');
+const resultItemsEl = document.getElementById('result-items');
 const currencyDisplay = document.getElementById('currency-display');
 const invCurrencyDisplay = document.getElementById('inv-currency-display');
 const npcListEl = document.getElementById('npc-list');
@@ -98,6 +109,7 @@ const talentModalBody = document.getElementById('talent-modal-body');
 const resultXpEl = document.getElementById('result-xp');
 const victoryXpEl = document.getElementById('victory-xp');
 const victoryEarnedEl = document.getElementById('victory-earned');
+const victoryItemsEl = document.getElementById('victory-items');
 
 let scene = null;
 let currentModalItem = null;
@@ -130,6 +142,12 @@ function bankCurrencyEarnings(earned) {
   }
 }
 
+// Any drop that doesn't fit is simply lost, same as currency overflow —
+// only report the list of what actually got banked.
+function bankItemDrops(items) {
+  return items.filter((item) => addLootItem(item));
+}
+
 function renderCurrencyChipsInto(el, earned) {
   el.innerHTML = Object.values(CURRENCIES)
     .map(
@@ -140,6 +158,20 @@ function renderCurrencyChipsInto(el, earned) {
         </span>
       `
     )
+    .join('');
+}
+
+function renderDropListInto(el, items) {
+  if (!items || items.length === 0) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = items
+    .map((item) => {
+      const base = getBaseItem(item.defId);
+      const socketsNote = item.sockets.length > 0 ? ` (${item.sockets.length} sockets)` : '';
+      return `<span class="drop-item"><strong>${base.name}</strong>${socketsNote}</span>`;
+    })
     .join('');
 }
 
@@ -179,17 +211,16 @@ function renderNpcList() {
 }
 
 function handleNpcInteract(npc) {
-  if (npc.service === 'gem_shop') {
-    openShop(npc);
-  }
+  if (npc.service === 'gem_shop') openGemShop(npc);
+  else if (npc.service === 'merchant_shop') openMerchantShop(npc);
 }
 
-// --- shop ---
+// --- Yorna: skill gems only ---
 
-function openShop(npc) {
+function openGemShop(npc) {
   shopTitle.textContent = `${npc.name}'s Wares`;
   refreshCurrencyDisplay();
-  renderShop();
+  renderGemShop();
   shopModal.classList.add('active');
 }
 
@@ -197,37 +228,8 @@ function closeShop() {
   shopModal.classList.remove('active');
 }
 
-function renderShop() {
+function renderGemShop() {
   shopItemsEl.innerHTML = '';
-
-  const gearHeader = document.createElement('div');
-  gearHeader.className = 'shop-section-title';
-  gearHeader.textContent = 'Gear';
-  shopItemsEl.appendChild(gearHeader);
-
-  for (const def of EQUIPMENT_ITEMS) {
-    const canAfford = getBalance(def.currency) >= def.cost;
-    const speedNote = def.stats?.attackSpeedPct
-      ? ` &middot; +${Math.round(def.stats.attackSpeedPct * 100)}% attack speed`
-      : '';
-    const card = document.createElement('div');
-    card.className = 'gem-card';
-    card.innerHTML = `
-      <div class="gem-card-top">
-        <span class="gem-name">${def.name}</span>
-        <span class="gem-cost">${currencyCost(def)}</span>
-      </div>
-      <div class="gem-desc">${def.sockets} sockets${speedNote}</div>
-      <button class="gem-action" data-buy-gear="${def.id}" ${canAfford ? '' : 'disabled'}>Buy</button>
-    `;
-    shopItemsEl.appendChild(card);
-  }
-
-  const gemHeader = document.createElement('div');
-  gemHeader.className = 'shop-section-title';
-  gemHeader.textContent = 'Skill Gems';
-  shopItemsEl.appendChild(gemHeader);
-
   for (const def of GEMS) {
     const canAfford = getBalance(def.currency) >= def.cost;
     const met = meetsRequirement(def.requirement);
@@ -244,25 +246,9 @@ function renderShop() {
     `;
     shopItemsEl.appendChild(card);
   }
-
-  shopItemsEl.querySelectorAll('[data-buy-gear]').forEach((btn) => {
-    btn.addEventListener('click', () => buyGear(btn.dataset.buyGear));
-  });
   shopItemsEl.querySelectorAll('[data-buy-gem]').forEach((btn) => {
     btn.addEventListener('click', () => buyGem(btn.dataset.buyGem));
   });
-}
-
-function buyGear(defId) {
-  const def = getEquipmentDef(defId);
-  if (getBalance(def.currency) < def.cost) return;
-  if (!buyEquipment(defId)) {
-    alert('Your bag is full — make room in your Inventory first.');
-    return;
-  }
-  spendCurrency(def.currency, def.cost);
-  refreshCurrencyDisplay();
-  renderShop();
 }
 
 function buyGem(defId) {
@@ -274,7 +260,59 @@ function buyGem(defId) {
   }
   spendCurrency(def.currency, def.cost);
   refreshCurrencyDisplay();
-  renderShop();
+  renderGemShop();
+}
+
+// --- Bram the Merchant: rotating gear stock ---
+
+function openMerchantShop(npc) {
+  shopTitle.textContent = `${npc.name}'s Stock`;
+  refreshCurrencyDisplay();
+  renderMerchantShop();
+  shopModal.classList.add('active');
+}
+
+function renderMerchantShop() {
+  shopItemsEl.innerHTML = '';
+  const stock = getStock();
+  if (stock.length === 0) {
+    shopItemsEl.innerHTML = `<div class="gem-desc">Nothing in stock right now. Check back after clearing a map or leveling up.</div>`;
+    return;
+  }
+  for (const stockItem of stock) {
+    const base = getBaseItem(stockItem.defId);
+    const canAfford = getBalance('cinderShard') >= stockItem.price;
+    const socketsNote = stockItem.sockets.length > 0 ? `${stockItem.sockets.length} sockets &middot; ` : '';
+    const card = document.createElement('div');
+    card.className = 'gem-card';
+    card.innerHTML = `
+      <div class="gem-card-top">
+        <span class="gem-name">${base.name}</span>
+        <span class="gem-cost">${stockItem.price} ${CURRENCIES.cinderShard.name}</span>
+      </div>
+      <div class="gem-desc">${socketsNote}${affixesText(stockItem.affixes)}</div>
+      <button class="gem-action" data-buy-stock="${stockItem.stockId}" ${canAfford ? '' : 'disabled'}>Buy</button>
+    `;
+    shopItemsEl.appendChild(card);
+  }
+  shopItemsEl.querySelectorAll('[data-buy-stock]').forEach((btn) => {
+    btn.addEventListener('click', () => buyMerchantItem(Number(btn.dataset.buyStock)));
+  });
+}
+
+function buyMerchantItem(stockId) {
+  const stockItem = getStock().find((i) => i.stockId === stockId);
+  if (!stockItem) return;
+  if (getBalance('cinderShard') < stockItem.price) return;
+  const { stockId: _s, price: _p, ...item } = stockItem;
+  if (!addLootItem(item)) {
+    alert('Your bag is full — make room in your Inventory first.');
+    return;
+  }
+  spendCurrency('cinderShard', stockItem.price);
+  removeFromStock(stockId);
+  refreshCurrencyDisplay();
+  renderMerchantShop();
 }
 
 // --- inventory screen ---
@@ -301,9 +339,9 @@ function renderPaperdoll() {
     const body = wrap.querySelector('.equip-slot-body');
     const item = equipped[slot];
     if (item) {
-      const def = getEquipmentDef(item.defId);
-      const filled = item.sockets.filter(Boolean).length;
-      body.textContent = `${def.name} (${filled}/${def.sockets})`;
+      const base = getBaseItem(item.defId);
+      body.textContent =
+        item.sockets.length > 0 ? `${base.name} (${item.sockets.filter(Boolean).length}/${item.sockets.length})` : base.name;
       wrap.classList.add('filled');
     } else {
       body.textContent = 'Empty';
@@ -318,8 +356,8 @@ function itemLabel(item, tabKind) {
     return def ? def.name : '?';
   }
   if (item.kind === 'currency') return `${item.quantity}`;
-  const def = getEquipmentDef(item.defId);
-  return def ? def.name : '?';
+  const base = getBaseItem(item.defId);
+  return base ? base.name : '?';
 }
 
 function renderGrid(containerEl, gridData, tabKind) {
@@ -382,14 +420,18 @@ function openItemModal(tabKind, item) {
       <button class="gem-action" id="item-discard">Discard Stack</button>
     `;
   } else {
-    const def = getEquipmentDef(item.defId);
-    const speedNote = def.stats?.attackSpeedPct
-      ? ` &middot; +${Math.round(def.stats.attackSpeedPct * 100)}% attack speed`
-      : '';
-    itemModalTitle.textContent = def.name;
+    const base = getBaseItem(item.defId);
+    const socketsNote = item.sockets.length > 0 ? `${item.sockets.length} sockets` : 'No sockets';
+    const equipButtons =
+      base.slotCategory === 'weapon' && base.handedness === 'one'
+        ? `<button class="gem-action" id="item-equip-main">Equip Main Hand</button>
+           <button class="gem-action" id="item-equip-off">Equip Off Hand</button>`
+        : `<button class="gem-action" id="item-equip">Equip</button>`;
+    itemModalTitle.textContent = base.name;
     itemModalBody.innerHTML = `
-      <div class="gem-desc">${def.sockets} sockets${speedNote}</div>
-      <button class="gem-action" id="item-equip">Equip</button>
+      <div class="gem-desc">${socketsNote}</div>
+      <div class="gem-desc">${affixesText(item.affixes)}</div>
+      ${equipButtons}
       <button class="gem-action" id="item-discard">Discard</button>
     `;
   }
@@ -420,31 +462,55 @@ function wireItemModalActions() {
       }
     });
   }
+  const equipMainBtn = document.getElementById('item-equip-main');
+  if (equipMainBtn) {
+    equipMainBtn.addEventListener('click', () => {
+      const { item } = currentModalItem;
+      if (equipItem(item.instanceId, 'weapon')) {
+        closeItemModal();
+        refreshInventoryScreen();
+      } else {
+        alert('No room to swap out your current weapon — make space in your bag first, or unequip your off hand if you have a two-handed weapon queued.');
+      }
+    });
+  }
+  const equipOffBtn = document.getElementById('item-equip-off');
+  if (equipOffBtn) {
+    equipOffBtn.addEventListener('click', () => {
+      const { item } = currentModalItem;
+      if (equipItem(item.instanceId, 'offhand')) {
+        closeItemModal();
+        refreshInventoryScreen();
+      } else {
+        alert('Your off hand needs a one-handed main weapon equipped first.');
+      }
+    });
+  }
 }
 
 function openEquippedModal(slot) {
   const item = getEquipped()[slot];
   if (!item) return;
-  const def = getEquipmentDef(item.defId);
+  const base = getBaseItem(item.defId);
   currentModalItem = { tabKind: 'equipped', slot };
 
-  const speedNote = def.stats?.attackSpeedPct
-    ? ` &middot; +${Math.round(def.stats.attackSpeedPct * 100)}% attack speed`
-    : '';
-  const pips = item.sockets
-    .map((gemId, idx) => {
-      if (gemId) {
-        const gdef = getGemById(gemId);
-        return `<button class="socket-pip filled" data-index="${idx}">${gdef.name[0]}</button>`;
-      }
-      return `<button class="socket-pip empty" data-index="${idx}">+</button>`;
-    })
-    .join('');
+  const socketsHtml =
+    item.sockets.length > 0
+      ? `<div class="socket-row">${item.sockets
+          .map((gemId, idx) => {
+            if (gemId) {
+              const gdef = getGemById(gemId);
+              return `<button class="socket-pip filled" data-index="${idx}">${gdef.name[0]}</button>`;
+            }
+            return `<button class="socket-pip empty" data-index="${idx}">+</button>`;
+          })
+          .join('')}</div>`
+      : '';
 
-  itemModalTitle.textContent = def.name;
+  itemModalTitle.textContent = base.name;
   itemModalBody.innerHTML = `
-    <div class="gem-desc">${def.sockets} sockets${speedNote}</div>
-    <div class="socket-row">${pips}</div>
+    <div class="gem-desc">${affixesText(item.affixes)}</div>
+    ${socketsHtml}
     <button class="gem-action" id="item-unequip">Unequip</button>
   `;
   itemModal.classList.add('active');
@@ -685,25 +751,31 @@ function startCombat() {
     onCurrencyChange(earned) {
       shardsLabel.textContent = `+${earned} Loot`;
     },
-    onDeath(waveReached, currencyEarned, xpEarned) {
+    onDeath(waveReached, currencyEarned, xpEarned, itemsEarned) {
       scene.stop();
       const best = reportWaveReached(waveReached);
       bankCurrencyEarnings(currencyEarned);
-      addXp(xpEarned);
+      const banked = bankItemDrops(itemsEarned);
+      const xpResult = addXp(xpEarned);
+      if (xpResult.levelsGained > 0) refreshStock();
       resultWaveEl.textContent = String(waveReached);
       resultBestEl.textContent = String(best);
       resultXpEl.textContent = String(Math.round(xpEarned));
       renderCurrencyChipsInto(resultEarnedEl, currencyEarned);
+      renderDropListInto(resultItemsEl, banked);
       refreshProgressionBar();
       showScreen('results');
     },
-    onMapComplete(currencyEarned, xpEarned) {
+    onMapComplete(currencyEarned, xpEarned, itemsEarned) {
       scene.stop();
       bankCurrencyEarnings(currencyEarned);
+      const banked = bankItemDrops(itemsEarned);
       addXp(xpEarned);
       awardMappingPoint();
+      refreshStock();
       victoryXpEl.textContent = String(Math.round(xpEarned));
       renderCurrencyChipsInto(victoryEarnedEl, currencyEarned);
+      renderDropListInto(victoryItemsEl, banked);
       refreshProgressionBar();
       showScreen('victory');
     },
@@ -728,7 +800,9 @@ document.getElementById('retreat-btn').addEventListener('click', () => {
   if (scene) {
     scene.stop();
     bankCurrencyEarnings(scene.currencyEarned);
-    addXp(scene.xpEarned);
+    bankItemDrops(scene.itemsEarned);
+    const xpResult = addXp(scene.xpEarned);
+    if (xpResult.levelsGained > 0) refreshStock();
   }
   refreshBestWave();
   refreshCurrencyDisplay();
@@ -747,6 +821,8 @@ document.getElementById('victory-return-btn').addEventListener('click', () => {
   refreshCurrencyDisplay();
   showScreen('town');
 });
+
+if (getStock().length === 0) refreshStock();
 
 refreshBestWave();
 refreshCurrencyDisplay();

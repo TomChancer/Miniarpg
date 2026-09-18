@@ -66,18 +66,20 @@ test('evasion roll blocks enemy contact damage exactly when the roll succeeds', 
 });
 
 test('each skill kind produces its expected effect, gated by mana', () => {
-  inv.addCurrency('cinderShard', 200);
   inv.addCurrency('voidShard', 200);
-  for (const id of ['worn_helmet', 'worn_chest', 'worn_boots']) inv.buyEquipment(id);
-  for (const slot of ['helmet', 'chest', 'boots']) {
-    const defId = { helmet: 'worn_helmet', chest: 'worn_chest', boots: 'worn_boots' }[slot];
-    const item = inv.getGeneralGrid().items.find((i) => i.defId === defId);
+  // Hand-rolled items (in place of the merchant's randomized ones) with just
+  // enough of each stat to meet the three gems' requirements exactly.
+  inv.addLootItem({ kind: 'equipment', defId: 'helmet', w: 2, h: 2, sockets: [null], affixes: { intelligence: 3 } });
+  inv.addLootItem({ kind: 'equipment', defId: 'chest', w: 2, h: 3, sockets: [null], affixes: { strength: 2 } });
+  inv.addLootItem({ kind: 'equipment', defId: 'legs', w: 2, h: 2, sockets: [null], affixes: { dexterity: 4 } });
+  for (const slot of ['helmet', 'chest', 'legs']) {
+    const item = inv.getGeneralGrid().items.find((i) => i.defId === slot);
     inv.equipItem(item.instanceId);
   }
   for (const gemId of ['cinder_shot', 'crush', 'slice_and_dice']) {
     inv.addGem(gemId);
     inv.socketGem(
-      { cinder_shot: 'helmet', crush: 'chest', slice_and_dice: 'boots' }[gemId],
+      { cinder_shot: 'helmet', crush: 'chest', slice_and_dice: 'legs' }[gemId],
       0,
       gemId
     );
@@ -132,6 +134,37 @@ test('each skill kind produces its expected effect, gated by mana', () => {
   const gated = scene._castSkill(getGemById('cinder_shot'));
   assert.equal(gated, false);
   assert.equal(scene.character.mana, before);
+});
+
+test('weapon type scales non-innate skill range but never Punch', () => {
+  inv.addLootItem({ kind: 'equipment', defId: 'bow', w: 1, h: 4, sockets: new Array(6).fill(null), affixes: {} });
+  const bow = inv.getGeneralGrid().items.find((i) => i.defId === 'bow');
+  assert.equal(inv.equipItem(bow.instanceId, 'weapon'), true);
+
+  const scene = makeScene();
+  assert.equal(scene.weaponRangeMultiplier, 1.5); // bow is the longest-range weapon type
+
+  const cinderShot = getGemById('cinder_shot');
+  const farEnemy = new Enemy(scene.character.x, scene.character.y - cinderShot.range * 1.3, 1, 'husk');
+  scene.enemies = [farEnemy];
+  scene.character.mana = scene.character.maxMana;
+  // out of the gem's own 220 range, but within range * 1.5 thanks to the bow
+  assert.equal(scene._castSkill(cinderShot), true);
+
+  scene.projectiles = [];
+  scene.character.mana = scene.character.maxMana;
+  assert.equal(scene._castSkill(PUNCH_SKILL), false); // Punch's range is untouched by the bow
+});
+
+test('gear drops: bosses always drop, and the item lands in itemsEarned', () => {
+  const scene = makeScene();
+  assert.deepEqual(scene.itemsEarned, []);
+
+  const boss = new Enemy(scene.character.x, scene.character.y, 1, 'boss');
+  scene._damageEnemy(boss, boss.hp + 1);
+  assert.equal(scene.itemsEarned.length, 1);
+  assert.ok(scene.itemsEarned[0].defId);
+  assert.ok(Array.isArray(scene.itemsEarned[0].sockets));
 });
 
 test('clearing all rounds and the boss fires onMapComplete exactly once', () => {
