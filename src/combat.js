@@ -1,8 +1,9 @@
 import { Character, Enemy, Projectile, buildWave } from './entities.js';
 import { PUNCH_SKILL, getGemById } from './gems.js';
 import {
-  getSocketedGemDefIds, getSpeedMultiplier, getTotalStats, meetsRequirement, getWeaponMods, CURRENCIES,
+  getSocketedGemGroups, getSpeedMultiplier, getTotalStats, meetsRequirement, getWeaponMods, CURRENCIES,
 } from './inventory.js';
+import { resolveSkill, supportsFor } from './skillResolution.js';
 import { getPlayerKeystoneMods, getMapModifiers } from './progression.js';
 import { getMapDef } from './maps.js';
 import { BASE_ITEM_IDS } from './equipment.js';
@@ -62,13 +63,22 @@ export class CombatScene {
     this.itemsEarned = [];
 
     this.speedMultiplier = getSpeedMultiplier() + this.character.speedMultiplierBonus;
-    // Punch is innate; socketed gems only count if their stat requirement is
-    // still met (handles gear being unequipped after a gem was socketed) and
-    // if the id still resolves to a known gem at all.
-    const gemDefs = getSocketedGemDefIds()
-      .map((id) => getGemById(id))
-      .filter((def) => def && meetsRequirement(def.requirement));
-    const skillDefs = [PUNCH_SKILL, ...gemDefs];
+    // Punch is innate; every other skill comes from socketed gems, grouped by
+    // the equipped item they're socketed in — a support gem only links to
+    // skill gems sharing sockets on that SAME item (see skillResolution.js).
+    // A gem only counts if its stat requirement is still met (handles gear
+    // being unequipped after a gem was socketed) and it still resolves to a
+    // known gem at all.
+    const resolvedSkills = [];
+    for (const ids of getSocketedGemGroups()) {
+      const defs = ids.map((id) => getGemById(id)).filter((def) => def && meetsRequirement(def.requirement));
+      const skillsInGroup = defs.filter((def) => def.gemType !== 'support');
+      const supportsInGroup = defs.filter((def) => def.gemType === 'support');
+      for (const skillDef of skillsInGroup) {
+        resolvedSkills.push(resolveSkill(skillDef, supportsFor(skillDef, supportsInGroup)));
+      }
+    }
+    const skillDefs = [PUNCH_SKILL, ...resolvedSkills];
     this.skills = skillDefs.map((def) => ({
       def,
       timer: Math.random() * (1 / (def.speed * this.speedMultiplier)),
@@ -245,15 +255,26 @@ export class CombatScene {
   _castSkill(def) {
     const ch = this.character;
     if (ch.mana < def.manaCost) return false;
-    const dmg = ch.damage * ch.damageMultiplier(def.scalingStat);
+    const dmg = ch.damage * ch.damageMultiplier(def.scalingStat) * (def.supportDamageMultiplier || 1);
     // Punch is gear-independent; every other skill's range is scaled by the
     // equipped weapon type (1h shortest -> 2h sword -> staff -> bow longest).
     const range = def.innate ? def.range : def.range * this.weaponRangeMultiplier;
+    const area = def.areaMultiplier || 1;
 
     if (def.kind === 'projectile') {
       const target = this._nearestEnemy(range);
       if (!target) return false;
-      this.projectiles.push(new Projectile(ch.x, ch.y, target.x, target.y, dmg, def.pierce || 0));
+      // A Volley-style support fans extra projectiles around the direct
+      // line to the nearest enemy rather than stacking them all on one path.
+      const count = def.projectileCount || 1;
+      const baseAngle = Math.atan2(target.y - ch.y, target.x - ch.x);
+      const spreadStep = Math.PI / 12;
+      for (let i = 0; i < count; i++) {
+        const angle = baseAngle + (i - (count - 1) / 2) * spreadStep;
+        const tx = ch.x + Math.cos(angle) * range;
+        const ty = ch.y + Math.sin(angle) * range;
+        this.projectiles.push(new Projectile(ch.x, ch.y, tx, ty, dmg, def.pierce || 0));
+      }
     } else if (def.kind === 'melee') {
       const target = this._nearestEnemy(range);
       if (!target) return false;
@@ -266,10 +287,11 @@ export class CombatScene {
       const target = this._nearestEnemy(range);
       if (!target) return false;
       const angle = Math.atan2(target.y - ch.y, target.x - ch.x);
-      const hits = this._enemiesInLine(angle, range, def.lineWidth / 2);
+      const width = def.lineWidth * area;
+      const hits = this._enemiesInLine(angle, range, width / 2);
       for (const enemy of hits) this._damageEnemy(enemy, dmg);
       this.effects.push({
-        type: 'line', x: ch.x, y: ch.y, angle, range, width: def.lineWidth,
+        type: 'line', x: ch.x, y: ch.y, angle, range, width,
         life: 0.2, maxLife: 0.2,
       });
     } else if (def.kind === 'dash') {
@@ -277,6 +299,12 @@ export class CombatScene {
       if (!target) return false;
       this._damageEnemy(target, dmg);
       this.dash = { toX: target.x, toY: target.y, elapsed: 0, duration: DASH_DURATION };
+    } else if (def.kind === 'nova') {
+      const radius = range * area;
+      const hits = this._enemiesInRadius(radius);
+      if (hits.length === 0) return false;
+      for (const enemy of hits) this._damageEnemy(enemy, dmg);
+      this.effects.push({ type: 'nova', x: ch.x, y: ch.y, radius, life: 0.25, maxLife: 0.25 });
     } else {
       return false;
     }
@@ -337,6 +365,11 @@ export class CombatScene {
       }
     }
     return best;
+  }
+
+  _enemiesInRadius(radius) {
+    const ch = this.character;
+    return this.enemies.filter((enemy) => Math.hypot(enemy.x - ch.x, enemy.y - ch.y) <= radius + enemy.radius);
   }
 
   _enemiesInLine(angle, range, halfWidth) {
@@ -426,6 +459,17 @@ export class CombatScene {
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    // nova bursts, on top of everything
+    for (const fx of this.effects) {
+      if (fx.type !== 'nova') continue;
+      const alpha = Math.max(0, fx.life / fx.maxLife);
+      ctx.strokeStyle = `rgba(224, 169, 90, ${alpha * 0.8})`;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(fx.x, fx.y, fx.radius, 0, Math.PI * 2);
+      ctx.stroke();
     }
 
     // melee/dash hit flashes, on top of everything

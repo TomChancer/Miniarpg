@@ -156,6 +156,85 @@ test('weapon type scales non-innate skill range but never Punch', () => {
   assert.equal(scene._castSkill(PUNCH_SKILL), false); // Punch's range is untouched by the bow
 });
 
+test('support gems only modify skill gems socketed in the SAME equipped item', () => {
+  inv.addLootItem({ kind: 'equipment', defId: 'helmet', w: 2, h: 2, sockets: [null, null], affixes: { intelligence: 97 } });
+  inv.addLootItem({ kind: 'equipment', defId: 'chest', w: 2, h: 3, sockets: [null, null], affixes: { strength: 97 } });
+  inv.addLootItem({ kind: 'equipment', defId: 'legs', w: 2, h: 2, sockets: [null], affixes: { vitality: 1 } });
+  const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet' && i.affixes.intelligence === 97);
+  const chest = inv.getGeneralGrid().items.find((i) => i.defId === 'chest' && i.affixes.strength === 97);
+  const legs = inv.getGeneralGrid().items.find((i) => i.defId === 'legs' && i.affixes.vitality === 1);
+  assert.equal(inv.equipItem(helmet.instanceId), true);
+  assert.equal(inv.equipItem(chest.instanceId), true);
+  assert.equal(inv.equipItem(legs.instanceId), true);
+
+  // helmet: cinder_shot + Added Might Support -- linked, same item
+  inv.addGem('cinder_shot');
+  inv.addGem('support_added_might');
+  assert.equal(inv.socketGem('helmet', 0, 'cinder_shot'), true);
+  assert.equal(inv.socketGem('helmet', 1, 'support_added_might'), true);
+
+  // chest: crush alone
+  inv.addGem('crush');
+  assert.equal(inv.socketGem('chest', 0, 'crush'), true);
+
+  // legs: Momentum Support alone (targets 'melee' -- would boost crush, but
+  // it's socketed in a different item, so it must NOT apply)
+  inv.addGem('support_momentum');
+  assert.equal(inv.socketGem('legs', 0, 'support_momentum'), true);
+
+  const scene = makeScene();
+  assert.equal(scene.skills.length, 3); // punch + cinder_shot + crush (supports never fire on their own)
+
+  const cinderShotSkill = scene.skills.find((s) => s.def.id === 'cinder_shot').def;
+  assert.equal(cinderShotSkill.supportDamageMultiplier, 1.25);
+  assert.deepEqual(cinderShotSkill.appliedSupportIds, ['support_added_might']);
+
+  const crushSkill = scene.skills.find((s) => s.def.id === 'crush').def;
+  assert.equal(crushSkill.supportDamageMultiplier, 1); // Momentum Support is on a different item
+  assert.deepEqual(crushSkill.appliedSupportIds, []);
+});
+
+test('Volley Support adds a real extra projectile to the actual cast', () => {
+  inv.addLootItem({ kind: 'equipment', defId: 'helmet', w: 2, h: 2, sockets: [null, null], affixes: { intelligence: 55 } });
+  const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet' && i.affixes.intelligence === 55);
+  assert.equal(inv.equipItem(helmet.instanceId), true);
+  inv.addGem('cinder_shot');
+  inv.addGem('support_volley');
+  assert.equal(inv.socketGem('helmet', 0, 'cinder_shot'), true);
+  assert.equal(inv.socketGem('helmet', 1, 'support_volley'), true);
+
+  const scene = makeScene();
+  const resolved = scene.skills.find((s) => s.def.id === 'cinder_shot').def;
+  assert.equal(resolved.projectileCount, 2);
+
+  const target = new Enemy(scene.character.x, scene.character.y - 50, 1, 'husk');
+  scene.enemies = [target];
+  scene.character.mana = scene.character.maxMana;
+  assert.equal(scene._castSkill(resolved), true);
+  assert.equal(scene.projectiles.length, 2);
+});
+
+test('Cinder Nova hits every enemy within its radius and ignores enemies far outside it', () => {
+  inv.addLootItem({ kind: 'equipment', defId: 'staff', w: 1, h: 4, sockets: new Array(6).fill(null), affixes: { intelligence: 30 } });
+  const staff = inv.getGeneralGrid().items.find((i) => i.defId === 'staff');
+  assert.equal(inv.equipItem(staff.instanceId, 'weapon'), true);
+  inv.addGem('cinder_nova');
+  assert.equal(inv.socketGem('weapon', 0, 'cinder_nova'), true);
+
+  const scene = makeScene();
+  const nova = scene.skills.find((s) => s.def.id === 'cinder_nova').def;
+
+  const near = new Enemy(scene.character.x + 10, scene.character.y, 1, 'husk');
+  const far = new Enemy(scene.character.x + 5000, scene.character.y, 1, 'husk');
+  near.hp = 1000;
+  far.hp = 1000;
+  scene.enemies = [near, far];
+  scene.character.mana = scene.character.maxMana;
+  assert.equal(scene._castSkill(nova), true);
+  assert.ok(near.hp < 1000);
+  assert.equal(far.hp, 1000);
+});
+
 test('gear drops: bosses always drop, and the item lands in itemsEarned', () => {
   const scene = makeScene();
   assert.deepEqual(scene.itemsEarned, []);

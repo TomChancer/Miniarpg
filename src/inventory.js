@@ -336,17 +336,19 @@ export function sellItem(instanceId) {
 
 // --- combat-facing derived stats ---
 
-export function getSocketedGemDefIds() {
+// One array of gem ids per equipped item that has at least one filled
+// socket — combat.js needs items kept separate (not flattened) because a
+// support gem only links to skill gems sharing sockets on the SAME item.
+export function getSocketedGemGroups() {
   const s = load();
-  const ids = [];
+  const groups = [];
   for (const slot of SLOTS) {
     const item = s.equipped[slot];
     if (!item) continue;
-    for (const gemId of item.sockets) {
-      if (gemId) ids.push(gemId);
-    }
+    const ids = item.sockets.filter(Boolean);
+    if (ids.length > 0) groups.push(ids);
   }
-  return ids;
+  return groups;
 }
 
 export function getSpeedMultiplier() {

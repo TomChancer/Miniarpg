@@ -24,6 +24,7 @@ import {
   sellItem,
 } from './inventory.js';
 import { GEMS, getGemById } from './gems.js';
+import { SUPPORT_GEMS } from './supports.js';
 import { SLOTS, getBaseItem } from './equipment.js';
 import { itemValue } from './loot.js';
 import { getAvailableNpcs } from './npcs.js';
@@ -45,10 +46,15 @@ import { getTree } from './talentTrees.js';
 
 const STAT_LABELS = { strength: 'STR', vitality: 'VIT', intelligence: 'INT', dexterity: 'DEX', rarity: 'RAR' };
 const TIER_LABELS = { basic: 'Basic', uncommon: 'Uncommon', rare: 'Rare', unique: 'Unique' };
+const TAG_LABELS = { attack: 'Attack', melee: 'Melee', ranged: 'Ranged', projectile: 'Projectile', area: 'Area', dash: 'Dash' };
 
 function requirementText(requirement) {
   if (!requirement) return 'No requirement';
   return `Requires ${requirement.value} ${STAT_LABELS[requirement.stat]}`;
+}
+
+function tagsText(tags) {
+  return tags.map((t) => TAG_LABELS[t] || t).join(', ');
 }
 
 function currencyCost(def) {
@@ -236,7 +242,7 @@ function closeShop() {
 }
 
 function renderGemShop() {
-  shopItemsEl.innerHTML = '';
+  shopItemsEl.innerHTML = '<div class="shop-section-label">Skill Gems</div>';
   for (const def of GEMS) {
     const canAfford = getBalance(def.currency) >= def.cost;
     const met = meetsRequirement(def.requirement);
@@ -248,11 +254,35 @@ function renderGemShop() {
         <span class="gem-cost">${currencyCost(def)}</span>
       </div>
       <div class="gem-desc">${def.description}</div>
+      <div class="gem-desc">Tags: ${tagsText(def.tags)}</div>
       <div class="gem-desc">${def.manaCost} mana &middot; <span class="${met ? '' : 'req-unmet'}">${requirementText(def.requirement)}</span></div>
       <button class="gem-action" data-buy-gem="${def.id}" ${canAfford ? '' : 'disabled'}>Buy</button>
     `;
     shopItemsEl.appendChild(card);
   }
+
+  const supportHeader = document.createElement('div');
+  supportHeader.className = 'shop-section-label';
+  supportHeader.textContent = 'Support Gems';
+  shopItemsEl.appendChild(supportHeader);
+  for (const def of SUPPORT_GEMS) {
+    const canAfford = getBalance(def.currency) >= def.cost;
+    const met = meetsRequirement(def.requirement);
+    const card = document.createElement('div');
+    card.className = 'gem-card gem-card-support';
+    card.innerHTML = `
+      <div class="gem-card-top">
+        <span class="gem-name">${def.name}</span>
+        <span class="gem-cost">${currencyCost(def)}</span>
+      </div>
+      <div class="gem-desc">${def.description}</div>
+      <div class="gem-desc">Applies to: ${tagsText(def.appliesToTags)} &middot; socket it in the same item as the skill</div>
+      <div class="gem-desc"><span class="${met ? '' : 'req-unmet'}">${requirementText(def.requirement)}</span></div>
+      <button class="gem-action" data-buy-gem="${def.id}" ${canAfford ? '' : 'disabled'}>Buy</button>
+    `;
+    shopItemsEl.appendChild(card);
+  }
+
   shopItemsEl.querySelectorAll('[data-buy-gem]').forEach((btn) => {
     btn.addEventListener('click', () => buyGem(btn.dataset.buyGem));
   });
@@ -582,9 +612,19 @@ function openEquippedModal(slot) {
           .map((gemId, idx) => {
             if (gemId) {
               const gdef = getGemById(gemId);
-              return `<button class="socket-pip filled" data-index="${idx}">${gdef.name[0]}</button>`;
+              const cls = gdef.gemType === 'support' ? 'filled support' : 'filled';
+              return `<button class="socket-pip ${cls}" data-index="${idx}">${gdef.name[0]}</button>`;
             }
             return `<button class="socket-pip empty" data-index="${idx}">+</button>`;
+          })
+          .join('')}</div>
+        <div class="socket-legend">${item.sockets
+          .filter(Boolean)
+          .map((gemId) => {
+            const gdef = getGemById(gemId);
+            return gdef.gemType === 'support'
+              ? `<div class="gem-desc">${gdef.name} &mdash; Support &middot; applies to: ${tagsText(gdef.appliesToTags)}</div>`
+              : `<div class="gem-desc">${gdef.name} &mdash; Skill &middot; ${tagsText(gdef.tags)}</div>`;
           })
           .join('')}</div>`
       : '';
@@ -638,9 +678,12 @@ function openGemPicker(slot, socketIndex) {
     .map(([defId, count]) => {
       const def = getGemById(defId);
       const met = meetsRequirement(def.requirement);
+      const tagLine =
+        def.gemType === 'support' ? `Support &middot; applies to: ${tagsText(def.appliesToTags)}` : `Skill &middot; ${tagsText(def.tags)}`;
       return `
         <button class="gem-action gem-picker-option" data-gem="${defId}" ${met ? '' : 'disabled'}>
-          ${def.name} (${count}) &mdash; <span class="${met ? '' : 'req-unmet'}">${requirementText(def.requirement)}</span>
+          ${def.name} (${count}) &mdash; ${tagLine}<br>
+          <span class="${met ? '' : 'req-unmet'}">${requirementText(def.requirement)}</span>
         </button>
       `;
     })

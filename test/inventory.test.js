@@ -173,6 +173,32 @@ test('inventory: a full gem pouch blocks further purchases', () => {
   assert.equal(inv.addGem('crush'), false);
 });
 
+test('inventory: getSocketedGemGroups groups gem ids by equipped item, not flattened', () => {
+  for (const g of [...inv.getGemGrid().items]) inv.discardItem('gem', g.instanceId);
+  assert.deepEqual(inv.getSocketedGemGroups(), []);
+
+  inv.addLootItem({ kind: 'equipment', defId: 'helmet', tier: 'basic', w: 2, h: 2, sockets: [null, null], affixes: { intelligence: 10 } });
+  inv.addLootItem({ kind: 'equipment', defId: 'chest', tier: 'basic', w: 2, h: 3, sockets: [null, null], affixes: { strength: 10 } });
+  const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet');
+  const chest = inv.getGeneralGrid().items.find((i) => i.defId === 'chest');
+  assert.equal(inv.equipItem(helmet.instanceId), true);
+  assert.equal(inv.equipItem(chest.instanceId), true);
+
+  inv.addGem('cinder_shot');
+  inv.addGem('support_added_might');
+  inv.addGem('crush');
+  assert.equal(inv.socketGem('helmet', 0, 'cinder_shot'), true);
+  assert.equal(inv.socketGem('helmet', 1, 'support_added_might'), true);
+  assert.equal(inv.socketGem('chest', 0, 'crush'), true);
+
+  const groups = inv.getSocketedGemGroups();
+  assert.equal(groups.length, 2); // one per item with a filled socket
+  const helmetGroup = groups.find((g) => g.includes('cinder_shot'));
+  assert.deepEqual([...helmetGroup].sort(), ['cinder_shot', 'support_added_might'].sort());
+  const chestGroup = groups.find((g) => g.includes('crush'));
+  assert.deepEqual(chestGroup, ['crush']);
+});
+
 test('inventory: tier crafting with Cinder Shards/Fragments', async (t) => {
   await t.test('a Basic item with no room refuses a Cinder Shard affix add', () => {
     inv.addLootItem(ringItem(2, 'basic')); // already at 1/1 for Basic

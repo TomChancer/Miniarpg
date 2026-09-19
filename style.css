@@ -349,7 +349,30 @@ button.secondary:active { transform: scale(0.97); }
   color: var(--text);
 }
 
+.socket-pip.filled.support {
+  border-color: #e0a7e0;
+  background: #3d2f4d;
+}
+
+.socket-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: -4px 0 8px;
+}
+
 .gem-picker-option { display: block; width: 100%; margin-bottom: 8px; text-align: left; }
+
+.shop-section-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  margin: 10px 0 4px;
+}
+
+.gem-card-support { border-left: 3px solid #e0a7e0; }
 
 /* --- Talents screen --- */
 .talent-toolbar {
