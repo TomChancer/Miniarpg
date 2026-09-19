@@ -7,12 +7,17 @@
 // its actual hit-detection mechanics). Support gems (see supports.js) only
 // modify a skill if one of the skill's tags appears in the support's own
 // appliesToTags — that's the whole modularity hook. Current tags in use:
-//   attack     - any offensive skill (every skill gem has this)
+//   attack     - any offensive skill (every skill gem has this except a
+//                purely-utility aura like Repulse Aura, which deals no damage)
 //   melee      - short, point-blank reach
 //   ranged     - reaches out from a distance
 //   projectile - fires a physical projectile (gates projectile-count supports)
 //   area       - can hit more than one enemy per cast
 //   dash       - repositions the character
+//   aura       - an automatic, always-on effect around the player rather
+//                than something fired at a target (see combat.js's
+//                _updatePulseAura/_updateRepulseAura, driven outside the
+//                normal per-skill cast-timer loop)
 import { SUPPORT_GEMS } from './supports.js';
 
 // Punch is innate: everyone can always throw a punch, so it needs no
@@ -110,6 +115,40 @@ export const GEMS = [
     scalingStat: 'dexterity',
     requirement: { stat: 'dexterity', value: 8 },
     cost: 16,
+    currency: 'voidShard',
+  },
+  {
+    id: 'ember_aura',
+    name: 'Ember Aura',
+    description: 'A constant pulsing field of flame that siphons mana to burn nearby foes. Shuts off once your mana runs dry, and relights once it\'s full again.',
+    gemType: 'skill',
+    tags: ['attack', 'area', 'aura'],
+    kind: 'aura_pulse',
+    range: 110,
+    speed: 2, // pulses per second
+    manaCost: 0, // no per-cast cost; see manaCostPerSec, drained continuously while lit
+    manaCostPerSec: 10,
+    scalingStat: 'intelligence',
+    requirement: { stat: 'intelligence', value: 12 },
+    cost: 24,
+    currency: 'voidShard',
+  },
+  {
+    id: 'repulse_aura',
+    name: 'Repulse Aura',
+    description: 'An automatic ward that periodically knocks back nearby foes, buying you a moment of reprieve. Reserves 50% of your mana while active.',
+    gemType: 'skill',
+    tags: ['area', 'aura'],
+    kind: 'aura_repulse',
+    range: 100,
+    speed: 1, // unused (no per-cast timer); kept for shape parity with other gems
+    manaCost: 0, // no per-cast cost; the aura instead reserves manaReservePct at all times
+    cooldown: 4,
+    manaReservePct: 50,
+    knockbackForce: 260,
+    knockbackDuration: 0.4,
+    requirement: { stat: 'vitality', value: 10 },
+    cost: 24,
     currency: 'voidShard',
   },
 ];

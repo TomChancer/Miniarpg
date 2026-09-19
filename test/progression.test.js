@@ -141,4 +141,24 @@ test('progression: XP, leveling, and both trees', async (t) => {
     assert.equal(mapMods.enemyDamagePct, 25);
     assert.equal(inv.getTotalStats().rarity, 30); // keystone's rarity bonus, folded into stats
   });
+
+  await t.test('Blood Font keystone (VIT trunk) adds to the HP regen/mana-as-life steps before it, additively rather than as multipliers', () => {
+    prog.addXp(1000000);
+    assert.ok(prog.getAvailablePoints('player') >= 10, 'expected plenty of banked points');
+
+    for (const id of ['vit1', 'vit2', 'vit3', 'vit4', 'vit5', 'vit6', 'vit7']) {
+      assert.equal(prog.allocateNode('player', id), true);
+    }
+    const beforeKeystone = prog.getPlayerKeystoneMods();
+    assert.equal(beforeKeystone.hpRegenPct, 2); // vit5 + vit6, +1% each
+    assert.equal(beforeKeystone.manaCostAsLifePct, 25); // vit7
+
+    assert.equal(prog.allocateNode('player', 'vit_keystone'), true);
+    const mods = prog.getPlayerKeystoneMods();
+    assert.equal(mods.hpRegenPct, 2 + 5); // Blood Font adds its own +5%, doesn't replace
+    assert.equal(mods.manaCostAsLifePct, 25); // untouched -- Blood Font's mods don't include it
+    assert.equal(mods.manaMultiplier, 0.75);
+
+    prog.resetTree('player');
+  });
 });

@@ -7,6 +7,10 @@ const STATE_KEY = 'miniarpg.progression.v3';
 
 const STAT_KEYS = ['strength', 'vitality', 'intelligence', 'dexterity', 'rarity'];
 const PLAYER_MULTIPLIER_KEYS = ['damageMultiplier', 'hpMultiplier', 'manaMultiplier', 'manaRegenMultiplier', 'speedMultiplierBonus'];
+// Additive player-tree percentages, distinct from the multiplicative keys
+// above (those start at 1 and stack by multiplying; these start at 0 and
+// stack by summing, like the mapping tree's own MAP_MOD_KEYS).
+const PLAYER_ADDITIVE_KEYS = ['hpRegenPct', 'manaCostAsLifePct'];
 const MAP_MOD_KEYS = ['packSizePct', 'xpPct', 'spawnRatePct', 'enemyDamagePct', 'monsterToughnessPct'];
 // The player tree's defence branches grant these as fractions (0.15 = 15%),
 // matching gear's own GlobalPct affix convention -- see inventory.js
@@ -131,6 +135,7 @@ function collectNodeMods(treeId) {
   const mapMods = {};
   const playerMods = {};
   const defenseMods = {};
+  const additiveMods = {};
   for (const nodeId of getAllocatedNodes(treeId)) {
     const node = tree.nodes[nodeId];
     if (!node || nodeId === 'start') continue;
@@ -138,6 +143,7 @@ function collectNodeMods(treeId) {
       for (const [key, value] of Object.entries(node.mods)) {
         if (STAT_KEYS.includes(key)) stats[key] = (stats[key] || 0) + value;
         else if (PLAYER_MULTIPLIER_KEYS.includes(key)) applyPlayerMod(playerMods, key, value);
+        else if (PLAYER_ADDITIVE_KEYS.includes(key)) additiveMods[key] = (additiveMods[key] || 0) + value;
         else if (DEFENSE_MOD_KEYS.includes(key)) defenseMods[key] = (defenseMods[key] || 0) + value;
         else if (MAP_MOD_KEYS.includes(key)) mapMods[key] = (mapMods[key] || 0) + value;
       }
@@ -145,11 +151,13 @@ function collectNodeMods(treeId) {
       stats[node.stat] = (stats[node.stat] || 0) + node.amount;
     } else if (DEFENSE_MOD_KEYS.includes(node.mod)) {
       defenseMods[node.mod] = (defenseMods[node.mod] || 0) + node.amount;
+    } else if (PLAYER_ADDITIVE_KEYS.includes(node.mod)) {
+      additiveMods[node.mod] = (additiveMods[node.mod] || 0) + node.amount;
     } else if (node.mod) {
       mapMods[node.mod] = (mapMods[node.mod] || 0) + node.amount;
     }
   }
-  return { stats, mapMods, playerMods, defenseMods };
+  return { stats, mapMods, playerMods, defenseMods, additiveMods };
 }
 
 export function getPlayerStatBonuses() {
@@ -173,13 +181,15 @@ export function getPlayerDefenseBonuses() {
 }
 
 export function getPlayerKeystoneMods() {
-  const mods = collectNodeMods('player').playerMods;
+  const { playerMods: mods, additiveMods: additive } = collectNodeMods('player');
   return {
     damageMultiplier: mods.damageMultiplier || 1,
     hpMultiplier: mods.hpMultiplier || 1,
     manaMultiplier: mods.manaMultiplier || 1,
     manaRegenMultiplier: mods.manaRegenMultiplier || 1,
     speedMultiplierBonus: mods.speedMultiplierBonus || 0,
+    hpRegenPct: additive.hpRegenPct || 0,
+    manaCostAsLifePct: additive.manaCostAsLifePct || 0,
   };
 }
 

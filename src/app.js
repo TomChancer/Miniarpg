@@ -52,7 +52,7 @@ import { getTree } from './talentTrees.js';
 
 const STAT_LABELS = { strength: 'STR', vitality: 'VIT', intelligence: 'INT', dexterity: 'DEX', rarity: 'RAR' };
 const TIER_LABELS = { basic: 'Basic', uncommon: 'Uncommon', rare: 'Rare', unique: 'Unique' };
-const TAG_LABELS = { attack: 'Attack', melee: 'Melee', ranged: 'Ranged', projectile: 'Projectile', area: 'Area', dash: 'Dash' };
+const TAG_LABELS = { attack: 'Attack', melee: 'Melee', ranged: 'Ranged', projectile: 'Projectile', area: 'Area', dash: 'Dash', aura: 'Aura' };
 // Display names for affixes that aren't one of the five main stats above.
 const AFFIX_LABELS = {
   attackSpeedPct: 'Attack Speed',
@@ -72,6 +72,21 @@ function tagsText(tags) {
 
 function currencyCost(def) {
   return `${def.cost} ${CURRENCIES[def.currency].name}`;
+}
+
+// Auras don't pay a flat per-cast mana cost like other skills -- Ember Aura
+// drains continuously while lit, Repulse Aura just reserves a slice of the
+// pool -- so their shop/inventory listings need their own phrasing.
+function manaCostText(def) {
+  if (def.kind === 'aura_pulse') return `${def.manaCostPerSec} mana/sec`;
+  if (def.kind === 'aura_repulse') return `${def.manaReservePct}% mana reserved`;
+  return `${def.manaCost} mana`;
+}
+
+function gemStatsLine(def) {
+  if (def.kind === 'aura_pulse') return `${def.speed} pulses/s &middot; ${manaCostText(def)} &middot; scales with ${STAT_LABELS[def.scalingStat]}`;
+  if (def.kind === 'aura_repulse') return `${def.cooldown}s cooldown &middot; ${manaCostText(def)}`;
+  return `${def.speed}/s &middot; ${manaCostText(def)} &middot; scales with ${STAT_LABELS[def.scalingStat]}`;
 }
 
 function affixesText(affixes) {
@@ -176,7 +191,10 @@ let activeTalentTree = 'player';
 let hasCenteredTalentView = false;
 let hasCenteredMapView = false;
 
-const TREE_CANVAS_SIZE = 800;
+// Big enough for the longest spoke's outermost keystone (currently VIT's,
+// at radius 580 after Blood Font's branch extension) plus margin on every
+// side, since every spoke radiates from dead center.
+const TREE_CANVAS_SIZE = 1300;
 const TREE_CENTER = TREE_CANVAS_SIZE / 2;
 
 function refreshBestWave() {
@@ -302,7 +320,7 @@ function renderGemShop() {
       </div>
       <div class="gem-desc">${def.description}</div>
       <div class="gem-desc">Tags: ${tagsText(def.tags)}</div>
-      <div class="gem-desc">${def.manaCost} mana &middot; <span class="${met ? '' : 'req-unmet'}">${requirementText(def.requirement)}</span></div>
+      <div class="gem-desc">${manaCostText(def)} &middot; <span class="${met ? '' : 'req-unmet'}">${requirementText(def.requirement)}</span></div>
       <button class="gem-action" data-buy-gem="${def.id}" ${canAfford ? '' : 'disabled'}>Buy</button>
     `;
     shopItemsEl.appendChild(card);
@@ -504,7 +522,7 @@ function openItemModal(tabKind, item) {
     itemModalTitle.textContent = def.name;
     itemModalBody.innerHTML = `
       <div class="gem-desc">${def.description}</div>
-      <div class="gem-desc">${def.speed}/s &middot; ${def.manaCost} mana &middot; scales with ${STAT_LABELS[def.scalingStat]}</div>
+      <div class="gem-desc">${gemStatsLine(def)}</div>
       <div class="gem-desc"><span class="${met ? '' : 'req-unmet'}">${requirementText(def.requirement)}</span></div>
       <button class="gem-action" id="item-discard">Discard</button>
     `;

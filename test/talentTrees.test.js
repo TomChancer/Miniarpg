@@ -53,8 +53,8 @@ for (const [treeId, tree] of Object.entries(TREES)) {
   test(`${treeId} tree: has the expected number of keystones`, () => {
     const keystones = Object.values(tree.nodes).filter((n) => n.keystone);
     // Player tree: Berserker's Heart/Juggernaut (STR fork), Overcharge/Mind
-    // Ward (INT fork), Phase Skin (DEX, single) = 5. Mapping tree: Overrun
-    // (PACK, single) = 1.
-    assert.equal(keystones.length, treeId === 'player' ? 5 : 1);
+    // Ward (INT fork), Phase Skin (DEX, single), Blood Font (VIT, single)
+    // = 6. Mapping tree: Overrun (PACK, single) = 1.
+    assert.equal(keystones.length, treeId === 'player' ? 6 : 1);
   });
 }

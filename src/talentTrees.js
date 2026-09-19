@@ -119,7 +119,20 @@ export const PLAYER_TREE = makeTree([
       ],
     },
   },
-  { id: 'vit', angle: -18, steps: statSteps('vitality', 2, 4) },
+  {
+    id: 'vit', angle: -18,
+    steps: [
+      ...statSteps('vitality', 2, 4),
+      { name: '+1% Max HP regenerated per second', mod: 'hpRegenPct', amount: 1 },
+      { name: '+1% Max HP regenerated per second', mod: 'hpRegenPct', amount: 1 },
+      { name: 'Pay 25% of skill mana costs as life instead', mod: 'manaCostAsLifePct', amount: 25 },
+    ],
+    keystone: {
+      name: 'Blood Font',
+      description: '+5% Max HP regenerated per second, -25% Max Mana',
+      mods: { hpRegenPct: 5, manaMultiplier: 0.75 },
+    },
+  },
   {
     id: 'int', angle: 54, steps: statSteps('intelligence', 2, 3),
     fork: {

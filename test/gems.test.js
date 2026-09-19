@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { GEMS, PUNCH_SKILL, getGemById } from '../src/gems.js';
 import { SUPPORT_GEMS } from '../src/supports.js';
 
-const VALID_KINDS = ['melee', 'projectile', 'line', 'dash', 'nova'];
+const VALID_KINDS = ['melee', 'projectile', 'line', 'dash', 'nova', 'aura_pulse', 'aura_repulse'];
 const VALID_STATS = ['strength', 'vitality', 'intelligence', 'dexterity', 'rarity'];
-const VALID_TAGS = ['attack', 'melee', 'ranged', 'projectile', 'area', 'dash'];
+const VALID_TAGS = ['attack', 'melee', 'ranged', 'projectile', 'area', 'dash', 'aura'];
 
 test('Punch is innate: no requirement, no mana cost, tagged as a melee attack', () => {
   assert.equal(PUNCH_SKILL.requirement, null);
@@ -19,7 +19,12 @@ test('every purchasable skill gem has a valid kind, tags, requirement, cost, and
   for (const gem of GEMS) {
     assert.equal(gem.gemType, 'skill');
     assert.ok(VALID_KINDS.includes(gem.kind), `${gem.id} has an unknown kind "${gem.kind}"`);
-    assert.ok(VALID_STATS.includes(gem.scalingStat), `${gem.id} has an unknown scalingStat`);
+    // Repulse Aura is a pure utility -- it deals no damage, so it has
+    // neither a scalingStat nor the 'attack' tag every other gem carries.
+    if (gem.kind !== 'aura_repulse') {
+      assert.ok(VALID_STATS.includes(gem.scalingStat), `${gem.id} has an unknown scalingStat`);
+      assert.ok(gem.tags.includes('attack'), `${gem.id} should be tagged 'attack'`);
+    }
     assert.ok(gem.requirement, `${gem.id} should require a stat to socket`);
     assert.ok(VALID_STATS.includes(gem.requirement.stat));
     assert.ok(gem.cost > 0);
@@ -27,9 +32,22 @@ test('every purchasable skill gem has a valid kind, tags, requirement, cost, and
     assert.ok(gem.manaCost >= 0);
     assert.ok(gem.speed > 0);
     assert.ok(Array.isArray(gem.tags) && gem.tags.length > 0, `${gem.id} needs at least one tag`);
-    assert.ok(gem.tags.includes('attack'), `${gem.id} should be tagged 'attack'`);
     for (const tag of gem.tags) assert.ok(VALID_TAGS.includes(tag), `${gem.id} has an unknown tag "${tag}"`);
   }
+});
+
+test('Ember Aura and Repulse Aura carry their own aura-specific fields', () => {
+  const ember = getGemById('ember_aura');
+  assert.equal(ember.kind, 'aura_pulse');
+  assert.ok(ember.manaCostPerSec > 0);
+  assert.ok(ember.range > 0);
+
+  const repulse = getGemById('repulse_aura');
+  assert.equal(repulse.kind, 'aura_repulse');
+  assert.ok(repulse.manaReservePct > 0 && repulse.manaReservePct < 100);
+  assert.ok(repulse.cooldown > 0);
+  assert.ok(repulse.knockbackForce > 0);
+  assert.ok(repulse.knockbackDuration > 0);
 });
 
 test('every support gem targets at least one known tag and has a cost/currency', () => {

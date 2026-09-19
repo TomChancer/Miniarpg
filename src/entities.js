@@ -18,6 +18,10 @@ export class Character {
     this.globalDamageMultiplier = mods.damageMultiplier || 1;
     this.manaRegenMultiplier = mods.manaRegenMultiplier || 1;
     this.speedMultiplierBonus = mods.speedMultiplierBonus || 0;
+    this.hpRegenPct = mods.hpRegenPct || 0;
+    // A fraction of any skill's mana cost paid as life instead, shifting
+    // resource pressure from mana onto HP (see combat.js's _castSkill).
+    this.manaCostAsLifePct = mods.manaCostAsLifePct || 0;
 
     this.maxHp = (60 + this.vitality * 8) * (mods.hpMultiplier || 1);
     this.hp = this.maxHp;
@@ -48,6 +52,11 @@ export class Character {
       this.maxMana,
       this.mana + this.maxMana * MANA_REGEN_PCT_PER_SEC * this.manaRegenMultiplier * dt
     );
+  }
+
+  regenHp(dt) {
+    if (this.hpRegenPct <= 0) return;
+    this.hp = Math.min(this.maxHp, this.hp + this.maxHp * (this.hpRegenPct / 100) * dt);
   }
 
   // Recharges only once `barrierRechargeDelayTimer` has fully counted down --
@@ -103,6 +112,13 @@ export class Enemy {
     this.xpValue = Math.round(def.xpValue * toughMul);
     this.attackCooldown = 0.8;
     this.attackTimer = Math.random() * this.attackCooldown;
+
+    // Set by a Repulse Aura hit (see combat.js's _applyKnockback): while
+    // knockbackTimer counts down, the enemy slides away instead of homing in
+    // or attacking -- the "moment of reprieve" the aura is meant to buy.
+    this.knockbackTimer = 0;
+    this.knockbackVx = 0;
+    this.knockbackVy = 0;
   }
 
   isAlive() {

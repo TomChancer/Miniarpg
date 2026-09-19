@@ -5,7 +5,9 @@ import assert from 'node:assert/strict';
 import { CombatScene } from '../src/combat.js';
 import { Enemy } from '../src/entities.js';
 import * as inv from '../src/inventory.js';
+import * as prog from '../src/progression.js';
 import { getGemById, PUNCH_SKILL } from '../src/gems.js';
+import { SLOTS } from '../src/equipment.js';
 import { evasionChance as computeEvasionChance } from '../src/defense.js';
 import { combineModifierEffects } from '../src/mapModifiers.js';
 
@@ -15,6 +17,13 @@ import { combineModifierEffects } from '../src/mapModifiers.js';
 // tests owning their own grid state.
 function clearBag() {
   for (const it of [...inv.getGeneralGrid().items]) inv.discardItem('general', it.instanceId);
+}
+
+// Same idea, for equipped gear: a couple of the aura tests need to be sure
+// no OTHER skill gem (socketed on some other slot by an earlier test in this
+// file) is still equipped and contributing an extra skill/aura.
+function clearGear() {
+  for (const slot of SLOTS) inv.unequipItem(slot);
 }
 
 function makeScene(callbackOverrides = {}, mapId = undefined) {
@@ -395,4 +404,108 @@ test('the Volatile map modifier does not damage the player if they are out of bu
   const hpBefore = scene.character.hp;
   scene._damageEnemy(enemy, 1);
   assert.equal(scene.character.hp, hpBefore);
+});
+
+test("Blood Font's manaCostAsLifePct converts part of a skill's mana cost into an HP cost", () => {
+  prog.addXp(1000000);
+  for (const id of ['vit1', 'vit2', 'vit3', 'vit4', 'vit5', 'vit6', 'vit7']) {
+    assert.equal(prog.allocateNode('player', id), true);
+  }
+
+  const scene = makeScene();
+  assert.equal(scene.character.manaCostAsLifePct, 25);
+
+  const target = new Enemy(scene.character.x, scene.character.y - 50, 1, 'husk');
+  scene.enemies = [target];
+  scene.character.mana = scene.character.maxMana;
+  const manaBefore = scene.character.mana;
+  const hpBefore = scene.character.hp;
+
+  const cinderShot = getGemById('cinder_shot'); // manaCost 6
+  assert.equal(scene._castSkill(cinderShot), true);
+  assert.ok(Math.abs(manaBefore - scene.character.mana - 4.5) < 1e-9); // 75% of 6
+  assert.ok(Math.abs(hpBefore - scene.character.hp - 1.5) < 1e-9); // 25% of 6, paid as life
+
+  prog.resetTree('player'); // leave a clean slate for later tests in this file
+});
+
+test('Ember Aura continuously drains mana and pulses damage to enemies in range, shutting off empty and relighting full', () => {
+  clearBag();
+  clearGear();
+  inv.addLootItem({ kind: 'equipment', defId: 'staff', w: 1, h: 4, sockets: new Array(6).fill(null), affixes: { intelligence: 40 } });
+  const staff = inv.getGeneralGrid().items.find((i) => i.defId === 'staff' && i.affixes.intelligence === 40);
+  assert.equal(inv.equipItem(staff.instanceId, 'weapon'), true);
+  inv.addGem('ember_aura');
+  assert.equal(inv.socketGem('weapon', 0, 'ember_aura'), true);
+
+  const scene = makeScene();
+  // The aura is not an attack skill -- Punch still steps up as the active attack.
+  assert.equal(scene.skills.length, 1);
+  assert.equal(scene.skills[0].def.id, 'punch');
+  assert.equal(scene.auras.length, 1);
+  assert.equal(scene.auras[0].def.id, 'ember_aura');
+  assert.equal(scene.auras[0].on, true);
+
+  const near = new Enemy(scene.character.x + 10, scene.character.y, 1, 'husk');
+  near.hp = 1000000;
+  scene.enemies = [near];
+  scene.character.mana = scene.character.maxMana;
+
+  const manaBefore = scene.character.mana;
+  scene._updatePulseAura(scene.auras[0], 1); // a full second: drains and should land at least one pulse
+  assert.ok(scene.character.mana < manaBefore, 'expected continuous mana drain while lit');
+  assert.ok(near.hp < 1000000, 'expected at least one damage pulse within a full second');
+
+  // Draining past zero clamps to 0 and shuts the aura off.
+  scene.character.mana = 1;
+  scene._updatePulseAura(scene.auras[0], 1);
+  assert.equal(scene.character.mana, 0);
+  assert.equal(scene.auras[0].on, false);
+
+  // While off, it stays off short of a completely full mana pool...
+  scene.character.mana = scene.character.maxMana * 0.5;
+  scene._updatePulseAura(scene.auras[0], 1);
+  assert.equal(scene.auras[0].on, false);
+
+  // ...and relights only once mana is back to completely full.
+  scene.character.mana = scene.character.maxMana;
+  scene._updatePulseAura(scene.auras[0], 0);
+  assert.equal(scene.auras[0].on, true);
+});
+
+test('Repulse Aura reserves half of max mana at start, and knocks enemies back once its cooldown elapses', () => {
+  clearBag();
+  clearGear();
+  inv.addLootItem({ kind: 'equipment', defId: 'chest_armour', w: 2, h: 3, sockets: [null], affixes: { vitality: 15 } });
+  const chest = inv.getGeneralGrid().items.find((i) => i.defId === 'chest_armour' && i.affixes.vitality === 15);
+  assert.equal(inv.equipItem(chest.instanceId), true);
+  inv.addGem('repulse_aura');
+  assert.equal(inv.socketGem('chest', 0, 'repulse_aura'), true);
+
+  const scene = makeScene();
+  assert.equal(scene.auras.length, 1);
+  assert.equal(scene.auras[0].def.id, 'repulse_aura');
+  // Punch still fires as the attack -- Repulse Aura deals no damage of its own.
+  assert.equal(scene.skills.length, 1);
+  assert.equal(scene.skills[0].def.id, 'punch');
+
+  // The reservation shrinks the usable pool itself, not just what's spendable.
+  const unreserved = 20 + inv.getTotalStats().intelligence * 6;
+  assert.ok(Math.abs(scene.character.maxMana - unreserved * 0.5) < 1e-6);
+  assert.equal(scene.character.mana, scene.character.maxMana); // starts full within the reduced pool
+
+  const enemy = new Enemy(scene.character.x + 20, scene.character.y, 1, 'husk');
+  scene.enemies = [enemy];
+
+  // Well before the cooldown elapses, nothing happens.
+  scene.auras[0].timer = 10;
+  scene._updateRepulseAura(scene.auras[0], 1);
+  assert.equal(enemy.knockbackTimer, 0);
+
+  // Once the cooldown elapses, the enemy is knocked back away from the player.
+  scene.auras[0].timer = 0.1;
+  scene._updateRepulseAura(scene.auras[0], 1);
+  assert.ok(enemy.knockbackTimer > 0);
+  assert.ok(enemy.knockbackVx > 0); // pushed further toward +x, where it was standing
+  assert.equal(scene.auras[0].timer, scene.auras[0].def.cooldown);
 });

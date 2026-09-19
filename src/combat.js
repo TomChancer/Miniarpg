@@ -105,13 +105,38 @@ export class CombatScene {
         resolvedSkills.push(resolveSkill(skillDef, supportsFor(skillDef, supportsInGroup)));
       }
     }
+    // Auras (see _updatePulseAura/_updateRepulseAura) are automatic and
+    // driven outside the normal per-skill cast-timer loop, so they're split
+    // out here rather than living in this.skills.
+    const auraDefs = resolvedSkills.filter((def) => def.kind === 'aura_pulse' || def.kind === 'aura_repulse');
+    const attackDefs = resolvedSkills.filter((def) => def.kind !== 'aura_pulse' && def.kind !== 'aura_repulse');
     // Punch is a zero-gear fallback, not an extra attack: once any real
-    // skill gem is socketed, it takes over and Punch stops firing.
-    const skillDefs = resolvedSkills.length > 0 ? resolvedSkills : [PUNCH_SKILL];
-    this.skills = skillDefs.map((def) => ({
+    // attack skill is socketed, it takes over and Punch stops firing (an
+    // aura alone doesn't count -- it deals no direct damage of its own).
+    const finalAttackDefs = attackDefs.length > 0 ? attackDefs : [PUNCH_SKILL];
+    this.skills = finalAttackDefs.map((def) => ({
       def,
       timer: Math.random() * (1 / (def.speed * this.speedMultiplier)),
     }));
+    this.auras = auraDefs.map((def) => ({
+      def,
+      on: true,
+      timer: def.kind === 'aura_pulse'
+        ? Math.random() * (1 / (def.speed * this.speedMultiplier))
+        : Math.random() * def.cooldown,
+    }));
+
+    // A Repulse Aura reserves a slice of max mana for as long as it's
+    // socketed -- not a per-use cost, just a permanently smaller usable pool
+    // for every other skill (including itself, if it ever needed mana).
+    const reservePct = Math.min(
+      90,
+      auraDefs.filter((def) => def.kind === 'aura_repulse').reduce((sum, def) => sum + (def.manaReservePct || 0), 0)
+    );
+    if (reservePct > 0) {
+      this.character.maxMana *= 1 - reservePct / 100;
+      this.character.mana = this.character.maxMana;
+    }
 
     this.callbacks.onWaveChange(this.wave);
     this.callbacks.onHpChange(this.character.hp, this.character.maxHp);
@@ -206,6 +231,18 @@ export class CombatScene {
 
     // --- enemies ---
     for (const enemy of this.enemies) {
+      // A Repulse Aura hit: slide away under the knockback, skipping the
+      // normal homing/attack behaviour entirely -- that's the "moment of
+      // reprieve" it's meant to buy.
+      if (enemy.knockbackTimer > 0) {
+        enemy.knockbackTimer -= dt;
+        enemy.x += enemy.knockbackVx * dt;
+        enemy.y += enemy.knockbackVy * dt;
+        const decay = Math.max(0, 1 - dt * 6);
+        enemy.knockbackVx *= decay;
+        enemy.knockbackVy *= decay;
+        continue;
+      }
       const dx = ch.x - enemy.x;
       const dy = ch.y - enemy.y;
       const dist = Math.hypot(dx, dy) || 1;
@@ -228,7 +265,9 @@ export class CombatScene {
       }
     }
 
-    // --- mana & barrier regen ---
+    // --- hp, mana & barrier regen ---
+    ch.regenHp(dt);
+    this.callbacks.onHpChange(ch.hp, ch.maxHp);
     ch.regenMana(dt);
     this.callbacks.onManaChange(ch.mana, ch.maxMana);
     ch.regenBarrier(dt);
@@ -242,6 +281,12 @@ export class CombatScene {
           skill.timer = 1 / (skill.def.speed * this.speedMultiplier);
         }
       }
+    }
+
+    // --- auras: automatic, always-on effects distinct from active skills ---
+    for (const aura of this.auras) {
+      if (aura.def.kind === 'aura_pulse') this._updatePulseAura(aura, dt);
+      else this._updateRepulseAura(aura, dt);
     }
 
     // --- projectiles ---
@@ -287,7 +332,12 @@ export class CombatScene {
 
   _castSkill(def) {
     const ch = this.character;
-    if (ch.mana < def.manaCost) return false;
+    // A Blood Font-style node pays part of a skill's mana cost as life
+    // instead, shrinking how much actual mana is needed to cast.
+    const lifePct = ch.manaCostAsLifePct || 0;
+    const manaPortion = def.manaCost * (1 - lifePct / 100);
+    const lifePortion = def.manaCost * (lifePct / 100);
+    if (ch.mana < manaPortion) return false;
     const dmg = ch.damage * ch.damageMultiplier(def.scalingStat) * (def.supportDamageMultiplier || 1);
     // Punch is gear-independent; every other skill's range is scaled by the
     // equipped weapon type (1h shortest -> 2h sword -> staff -> bow longest).
@@ -342,8 +392,80 @@ export class CombatScene {
       return false;
     }
 
-    ch.mana -= def.manaCost;
+    ch.mana -= manaPortion;
+    if (lifePortion > 0) {
+      ch.hp = Math.max(0, ch.hp - lifePortion);
+      this.callbacks.onHpChange(ch.hp, ch.maxHp);
+    }
     return true;
+  }
+
+  // Ember Aura: continuously siphons mana to burn everything in range, in
+  // pulses rather than one continuous tick. Shuts off the instant mana hits
+  // zero, and only relights once mana is completely full again -- a
+  // deliberate on/off hysteresis rather than resuming as soon as it's
+  // affordable, so a build can't just hover it at the edge of empty.
+  _updatePulseAura(aura, dt) {
+    const ch = this.character;
+    const def = aura.def;
+    const lifePct = ch.manaCostAsLifePct || 0;
+
+    if (aura.on) {
+      const drain = def.manaCostPerSec * dt;
+      const manaDrain = drain * (1 - lifePct / 100);
+      const lifeDrain = drain * (lifePct / 100);
+      if (ch.mana <= manaDrain) {
+        ch.mana = 0;
+        aura.on = false;
+      } else {
+        ch.mana -= manaDrain;
+      }
+      if (lifeDrain > 0) ch.hp = Math.max(0, ch.hp - lifeDrain);
+      this.callbacks.onManaChange(ch.mana, ch.maxMana);
+      this.callbacks.onHpChange(ch.hp, ch.maxHp);
+    } else if (ch.mana >= ch.maxMana) {
+      aura.on = true;
+    }
+
+    if (!aura.on) return;
+
+    aura.timer -= dt;
+    if (aura.timer > 0) return;
+    aura.timer = 1 / (def.speed * this.speedMultiplier);
+    const radius = def.range * (def.areaMultiplier || 1);
+    const hits = this._enemiesInRadius(radius);
+    if (hits.length === 0) return;
+    const dmg = ch.damage * ch.damageMultiplier(def.scalingStat) * (def.supportDamageMultiplier || 1);
+    for (const enemy of hits) this._damageEnemy(enemy, dmg);
+    this.effects.push({ type: 'nova', x: ch.x, y: ch.y, radius, life: 0.2, maxLife: 0.2 });
+  }
+
+  // Repulse Aura: an automatic, cooldown-gated knockback pulse -- no mana
+  // cost of its own beyond the standing reservation taken at start().
+  _updateRepulseAura(aura, dt) {
+    const def = aura.def;
+    aura.timer -= dt;
+    if (aura.timer > 0) return;
+    aura.timer = def.cooldown;
+    const radius = def.range * (def.areaMultiplier || 1);
+    const hits = this._enemiesInRadius(radius);
+    for (const enemy of hits) this._applyKnockback(enemy, def);
+    if (hits.length > 0) {
+      this.effects.push({ type: 'nova', x: this.character.x, y: this.character.y, radius, life: 0.3, maxLife: 0.3 });
+    }
+  }
+
+  _applyKnockback(enemy, def) {
+    const ch = this.character;
+    const dx = enemy.x - ch.x;
+    const dy = enemy.y - ch.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    enemy.knockbackVx = (dx / dist) * def.knockbackForce;
+    enemy.knockbackVy = (dy / dist) * def.knockbackForce;
+    enemy.knockbackTimer = def.knockbackDuration;
+    // Interrupts its attack windup too -- a real moment of reprieve, not
+    // just a shove.
+    enemy.attackTimer = Math.max(enemy.attackTimer, def.knockbackDuration);
   }
 
   _damageEnemy(enemy, damage) {
@@ -470,6 +592,18 @@ export class CombatScene {
       const eased = outT * outT * (3 - 2 * outT);
       renderX = ch.x + (this.dash.toX - ch.x) * eased;
       renderY = ch.y + (this.dash.toY - ch.y) * eased;
+    }
+
+    // a lit Ember Aura's field, drawn as a soft standing ring under the
+    // character rather than a one-shot effect, since it's active every frame
+    for (const aura of this.auras) {
+      if (aura.def.kind !== 'aura_pulse' || !aura.on) continue;
+      const radius = aura.def.range * (aura.def.areaMultiplier || 1);
+      ctx.strokeStyle = 'rgba(224, 90, 60, 0.35)';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.arc(ch.x, ch.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
     }
 
     ctx.fillStyle = '#d8b054';

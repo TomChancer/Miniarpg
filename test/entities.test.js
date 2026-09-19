@@ -117,6 +117,38 @@ test('Character.regenBarrier only recharges once the delay has fully elapsed, an
   assert.equal(ch.barrierRechargeDelayTimer, BARRIER_RECHARGE_DELAY_SEC);
 });
 
+test('Character.regenHp does nothing at zero hpRegenPct, and heals a % of max HP per second otherwise', () => {
+  const stats = { strength: 5, vitality: 10, intelligence: 5, dexterity: 5, rarity: 0 };
+  const plain = new Character(0, 0, stats);
+  plain.hp = 1;
+  plain.regenHp(10);
+  assert.equal(plain.hp, 1); // hpRegenPct defaults to 0 -- no change
+
+  const regenerating = new Character(0, 0, stats, { hpRegenPct: 5 });
+  regenerating.hp = 0;
+  regenerating.regenHp(1); // 1 second at 5%/s
+  assert.ok(Math.abs(regenerating.hp - regenerating.maxHp * 0.05) < 1e-9);
+
+  regenerating.regenHp(1000); // large dt should clamp to max, not overshoot
+  assert.equal(regenerating.hp, regenerating.maxHp);
+});
+
+test('Character reads manaCostAsLifePct from mods, defaulting to 0', () => {
+  const stats = { strength: 5, vitality: 5, intelligence: 5, dexterity: 5, rarity: 0 };
+  const plain = new Character(0, 0, stats);
+  assert.equal(plain.manaCostAsLifePct, 0);
+
+  const bloodMage = new Character(0, 0, stats, { manaCostAsLifePct: 25 });
+  assert.equal(bloodMage.manaCostAsLifePct, 25);
+});
+
+test('a fresh Enemy starts with no knockback applied', () => {
+  const enemy = new Enemy(0, 0, 1, 'husk');
+  assert.equal(enemy.knockbackTimer, 0);
+  assert.equal(enemy.knockbackVx, 0);
+  assert.equal(enemy.knockbackVy, 0);
+});
+
 test('Character.regenMana respects max and the regen multiplier', () => {
   const stats = { strength: 5, vitality: 5, intelligence: 5, dexterity: 5, rarity: 0 };
   const ch = new Character(0, 0, stats, { manaRegenMultiplier: 2 });
