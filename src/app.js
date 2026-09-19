@@ -89,6 +89,46 @@ function gemStatsLine(def) {
   return `${def.speed}/s &middot; ${manaCostText(def)} &middot; scales with ${STAT_LABELS[def.scalingStat]}`;
 }
 
+const SHOP_STAT_TABS = [
+  { id: 'strength', label: 'STR' },
+  { id: 'dexterity', label: 'DEX' },
+  { id: 'intelligence', label: 'INT' },
+  { id: 'general', label: 'General' },
+];
+
+// Which of the three main combat stats a gem "belongs" to, for the shop's
+// stat tabs -- keyed off its own requirement, same stat a player would need
+// to actually socket it. Vitality-gated gems (Repulse Aura, Widening
+// Support) and requirement-free ones (Added Might) don't fit STR/DEX/INT,
+// so they fall into a fourth catch-all tab rather than being force-fit.
+function gemStatCategory(def) {
+  const stat = def.requirement?.stat;
+  return stat === 'strength' || stat === 'dexterity' || stat === 'intelligence' ? stat : 'general';
+}
+
+// Same idea for gear: armor pieces are already archetype-pure (Armour~STR,
+// Evasion~DEX, Barrier~INT -- see equipment.js), and weapons split the same
+// way (sword~STR, bow~DEX, staff~INT). Jewelry rolls affixes across every
+// stat, so it isn't any one archetype -- also the catch-all tab.
+function gearStatCategory(defId) {
+  if (defId.endsWith('_armour') || defId.startsWith('sword_')) return 'strength';
+  if (defId.endsWith('_evasion') || defId === 'bow') return 'dexterity';
+  if (defId.endsWith('_barrier') || defId === 'staff') return 'intelligence';
+  return 'general';
+}
+
+// Renders a row of `.inv-tab` pills into `container`, wiring each one to
+// call `onSelect` with its id -- shared by the shop's stat tabs and (for the
+// gem shop only) its primary/support subtabs.
+function renderTabRow(container, tabs, activeId, onSelect) {
+  container.innerHTML = tabs
+    .map((t) => `<button class="inv-tab ${t.id === activeId ? 'active' : ''}" data-tab-id="${t.id}">${t.label}</button>`)
+    .join('');
+  container.querySelectorAll('[data-tab-id]').forEach((btn) => {
+    btn.addEventListener('click', () => onSelect(btn.dataset.tabId));
+  });
+}
+
 function affixesText(affixes) {
   if (!affixes || Object.keys(affixes).length === 0) return 'No affixes';
   return Object.entries(affixes)
@@ -157,6 +197,8 @@ const npcListEl = document.getElementById('npc-list');
 const shopModal = document.getElementById('shop-modal');
 const shopTitle = document.getElementById('shop-title');
 const shopBalance = document.getElementById('shop-balance');
+const shopTabsEl = document.getElementById('shop-tabs');
+const shopSubtabsEl = document.getElementById('shop-subtabs');
 const shopItemsEl = document.getElementById('shop-items');
 const itemModal = document.getElementById('item-modal');
 const itemModalTitle = document.getElementById('item-modal-title');
@@ -190,6 +232,9 @@ let currentModalItem = null;
 let activeTalentTree = 'player';
 let hasCenteredTalentView = false;
 let hasCenteredMapView = false;
+let gemShopStatFilter = 'strength';
+let gemShopTypeFilter = 'skill'; // 'skill' (primary) | 'support'
+let merchantShopStatFilter = 'strength';
 
 // Big enough for the longest spoke's outermost keystone (currently VIT's,
 // at radius 580 after Blood Font's branch extension) plus margin on every
@@ -306,46 +351,62 @@ function closeShop() {
   shopModal.classList.remove('active');
 }
 
-function renderGemShop() {
-  shopItemsEl.innerHTML = '<div class="shop-section-label">Skill Gems</div>';
-  for (const def of GEMS) {
-    const canAfford = getBalance(def.currency) >= def.cost;
-    const met = meetsRequirement(def.requirement);
-    const card = document.createElement('div');
-    card.className = 'gem-card';
-    card.innerHTML = `
-      <div class="gem-card-top">
-        <span class="gem-name">${def.name}</span>
-        <span class="gem-cost">${currencyCost(def)}</span>
-      </div>
-      <div class="gem-desc">${def.description}</div>
-      <div class="gem-desc">Tags: ${tagsText(def.tags)}</div>
-      <div class="gem-desc">${manaCostText(def)} &middot; <span class="${met ? '' : 'req-unmet'}">${requirementText(def.requirement)}</span></div>
-      <button class="gem-action" data-buy-gem="${def.id}" ${canAfford ? '' : 'disabled'}>Buy</button>
-    `;
-    shopItemsEl.appendChild(card);
-  }
+const GEM_TYPE_TABS = [
+  { id: 'skill', label: 'Primary' },
+  { id: 'support', label: 'Support' },
+];
 
-  const supportHeader = document.createElement('div');
-  supportHeader.className = 'shop-section-label';
-  supportHeader.textContent = 'Support Gems';
-  shopItemsEl.appendChild(supportHeader);
-  for (const def of SUPPORT_GEMS) {
-    const canAfford = getBalance(def.currency) >= def.cost;
-    const met = meetsRequirement(def.requirement);
-    const card = document.createElement('div');
-    card.className = 'gem-card gem-card-support';
-    card.innerHTML = `
-      <div class="gem-card-top">
-        <span class="gem-name">${def.name}</span>
-        <span class="gem-cost">${currencyCost(def)}</span>
-      </div>
-      <div class="gem-desc">${def.description}</div>
-      <div class="gem-desc">Applies to: ${tagsText(def.appliesToTags)} &middot; socket it in the same item as the skill</div>
-      <div class="gem-desc"><span class="${met ? '' : 'req-unmet'}">${requirementText(def.requirement)}</span></div>
-      <button class="gem-action" data-buy-gem="${def.id}" ${canAfford ? '' : 'disabled'}>Buy</button>
-    `;
-    shopItemsEl.appendChild(card);
+function renderGemShop() {
+  renderTabRow(shopTabsEl, SHOP_STAT_TABS, gemShopStatFilter, (id) => {
+    gemShopStatFilter = id;
+    renderGemShop();
+  });
+  renderTabRow(shopSubtabsEl, GEM_TYPE_TABS, gemShopTypeFilter, (id) => {
+    gemShopTypeFilter = id;
+    renderGemShop();
+  });
+
+  shopItemsEl.innerHTML = '';
+  if (gemShopTypeFilter === 'skill') {
+    const filtered = GEMS.filter((def) => gemStatCategory(def) === gemShopStatFilter);
+    if (filtered.length === 0) shopItemsEl.innerHTML = '<div class="gem-desc">No skill gems in this category yet.</div>';
+    for (const def of filtered) {
+      const canAfford = getBalance(def.currency) >= def.cost;
+      const met = meetsRequirement(def.requirement);
+      const card = document.createElement('div');
+      card.className = 'gem-card';
+      card.innerHTML = `
+        <div class="gem-card-top">
+          <span class="gem-name">${def.name}</span>
+          <span class="gem-cost">${currencyCost(def)}</span>
+        </div>
+        <div class="gem-desc">${def.description}</div>
+        <div class="gem-desc">Tags: ${tagsText(def.tags)}</div>
+        <div class="gem-desc">${manaCostText(def)} &middot; <span class="${met ? '' : 'req-unmet'}">${requirementText(def.requirement)}</span></div>
+        <button class="gem-action" data-buy-gem="${def.id}" ${canAfford ? '' : 'disabled'}>Buy</button>
+      `;
+      shopItemsEl.appendChild(card);
+    }
+  } else {
+    const filtered = SUPPORT_GEMS.filter((def) => gemStatCategory(def) === gemShopStatFilter);
+    if (filtered.length === 0) shopItemsEl.innerHTML = '<div class="gem-desc">No support gems in this category yet.</div>';
+    for (const def of filtered) {
+      const canAfford = getBalance(def.currency) >= def.cost;
+      const met = meetsRequirement(def.requirement);
+      const card = document.createElement('div');
+      card.className = 'gem-card gem-card-support';
+      card.innerHTML = `
+        <div class="gem-card-top">
+          <span class="gem-name">${def.name}</span>
+          <span class="gem-cost">${currencyCost(def)}</span>
+        </div>
+        <div class="gem-desc">${def.description}</div>
+        <div class="gem-desc">Applies to: ${tagsText(def.appliesToTags)} &middot; socket it in the same item as the skill</div>
+        <div class="gem-desc"><span class="${met ? '' : 'req-unmet'}">${requirementText(def.requirement)}</span></div>
+        <button class="gem-action" data-buy-gem="${def.id}" ${canAfford ? '' : 'disabled'}>Buy</button>
+      `;
+      shopItemsEl.appendChild(card);
+    }
   }
 
   shopItemsEl.querySelectorAll('[data-buy-gem]').forEach((btn) => {
@@ -375,13 +436,24 @@ function openMerchantShop(npc) {
 }
 
 function renderMerchantShop() {
+  renderTabRow(shopTabsEl, SHOP_STAT_TABS, merchantShopStatFilter, (id) => {
+    merchantShopStatFilter = id;
+    renderMerchantShop();
+  });
+  shopSubtabsEl.innerHTML = ''; // no primary/support split for gear
+
   shopItemsEl.innerHTML = '';
   const stock = getStock();
   if (stock.length === 0) {
     shopItemsEl.innerHTML = `<div class="gem-desc">Nothing in stock right now. Check back after clearing a map or leveling up.</div>`;
     return;
   }
-  for (const stockItem of stock) {
+  const filtered = stock.filter((stockItem) => gearStatCategory(stockItem.defId) === merchantShopStatFilter);
+  if (filtered.length === 0) {
+    shopItemsEl.innerHTML = `<div class="gem-desc">Nothing in this category right now. Check back after clearing a map or leveling up.</div>`;
+    return;
+  }
+  for (const stockItem of filtered) {
     const base = getBaseItem(stockItem.defId);
     const canAfford = getBalance('cinderShard') >= stockItem.price;
     const socketsNote = stockItem.sockets.length > 0 ? `${stockItem.sockets.length} sockets &middot; ` : '';
