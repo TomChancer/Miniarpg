@@ -42,8 +42,8 @@ test('a fresh character (zero gear) can still kill with Punch alone', () => {
 
 test('Punch steps aside the instant a real skill gem is socketed, so it never fires alongside one', () => {
   clearBag();
-  inv.addLootItem({ kind: 'equipment', defId: 'helmet', w: 2, h: 2, sockets: [null], affixes: { intelligence: 20 } });
-  const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet' && i.affixes.intelligence === 20);
+  inv.addLootItem({ kind: 'equipment', defId: 'helmet_armour', w: 2, h: 2, sockets: [null], affixes: { intelligence: 20 } });
+  const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet_armour' && i.affixes.intelligence === 20);
   assert.equal(inv.equipItem(helmet.instanceId), true);
   inv.addGem('cinder_shot');
   assert.equal(inv.socketGem('helmet', 0, 'cinder_shot'), true);
@@ -102,11 +102,11 @@ test('each skill kind produces its expected effect, gated by mana', () => {
   inv.addCurrency('voidShard', 200);
   // Hand-rolled items (in place of the merchant's randomized ones) with just
   // enough of each stat to meet the three gems' requirements exactly.
-  inv.addLootItem({ kind: 'equipment', defId: 'helmet', w: 2, h: 2, sockets: [null], affixes: { intelligence: 3 } });
-  inv.addLootItem({ kind: 'equipment', defId: 'chest', w: 2, h: 3, sockets: [null], affixes: { strength: 2 } });
-  inv.addLootItem({ kind: 'equipment', defId: 'legs', w: 2, h: 2, sockets: [null], affixes: { dexterity: 4 } });
-  for (const slot of ['helmet', 'chest', 'legs']) {
-    const item = inv.getGeneralGrid().items.find((i) => i.defId === slot);
+  inv.addLootItem({ kind: 'equipment', defId: 'helmet_armour', w: 2, h: 2, sockets: [null], affixes: { intelligence: 3 } });
+  inv.addLootItem({ kind: 'equipment', defId: 'chest_armour', w: 2, h: 3, sockets: [null], affixes: { strength: 2 } });
+  inv.addLootItem({ kind: 'equipment', defId: 'legs_armour', w: 2, h: 2, sockets: [null], affixes: { dexterity: 4 } });
+  for (const defId of ['helmet_armour', 'chest_armour', 'legs_armour']) {
+    const item = inv.getGeneralGrid().items.find((i) => i.defId === defId);
     inv.equipItem(item.instanceId);
   }
   for (const gemId of ['cinder_shot', 'crush', 'slice_and_dice']) {
@@ -191,12 +191,12 @@ test('weapon type scales non-innate skill range but never Punch', () => {
 
 test('support gems only modify skill gems socketed in the SAME equipped item', () => {
   clearBag();
-  inv.addLootItem({ kind: 'equipment', defId: 'helmet', w: 2, h: 2, sockets: [null, null], affixes: { intelligence: 97 } });
-  inv.addLootItem({ kind: 'equipment', defId: 'chest', w: 2, h: 3, sockets: [null, null], affixes: { strength: 97 } });
-  inv.addLootItem({ kind: 'equipment', defId: 'legs', w: 2, h: 2, sockets: [null], affixes: { vitality: 1 } });
-  const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet' && i.affixes.intelligence === 97);
-  const chest = inv.getGeneralGrid().items.find((i) => i.defId === 'chest' && i.affixes.strength === 97);
-  const legs = inv.getGeneralGrid().items.find((i) => i.defId === 'legs' && i.affixes.vitality === 1);
+  inv.addLootItem({ kind: 'equipment', defId: 'helmet_armour', w: 2, h: 2, sockets: [null, null], affixes: { intelligence: 97 } });
+  inv.addLootItem({ kind: 'equipment', defId: 'chest_armour', w: 2, h: 3, sockets: [null, null], affixes: { strength: 97 } });
+  inv.addLootItem({ kind: 'equipment', defId: 'legs_armour', w: 2, h: 2, sockets: [null], affixes: { vitality: 1 } });
+  const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet_armour' && i.affixes.intelligence === 97);
+  const chest = inv.getGeneralGrid().items.find((i) => i.defId === 'chest_armour' && i.affixes.strength === 97);
+  const legs = inv.getGeneralGrid().items.find((i) => i.defId === 'legs_armour' && i.affixes.vitality === 1);
   assert.equal(inv.equipItem(helmet.instanceId), true);
   assert.equal(inv.equipItem(chest.instanceId), true);
   assert.equal(inv.equipItem(legs.instanceId), true);
@@ -230,8 +230,8 @@ test('support gems only modify skill gems socketed in the SAME equipped item', (
 
 test('Volley Support adds a real extra projectile to the actual cast', () => {
   clearBag();
-  inv.addLootItem({ kind: 'equipment', defId: 'helmet', w: 2, h: 2, sockets: [null, null], affixes: { intelligence: 55 } });
-  const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet' && i.affixes.intelligence === 55);
+  inv.addLootItem({ kind: 'equipment', defId: 'helmet_armour', w: 2, h: 2, sockets: [null, null], affixes: { intelligence: 55 } });
+  const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet_armour' && i.affixes.intelligence === 55);
   assert.equal(inv.equipItem(helmet.instanceId), true);
   inv.addGem('cinder_shot');
   inv.addGem('support_volley');

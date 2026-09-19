@@ -3,12 +3,14 @@ import assert from 'node:assert/strict';
 import { BASE_ITEMS, BASE_ITEM_IDS, SLOTS, SLOT_CATEGORY, getBaseItem } from '../src/equipment.js';
 
 const VALID_CATEGORIES = ['helmet', 'chest', 'legs', 'ring', 'amulet', 'trinket', 'weapon'];
-const ARMOR_SLOT_IDS = ['helmet', 'chest', 'legs'];
+const ARMOR_SLOTS = ['helmet', 'chest', 'legs'];
+const ARCHETYPES = ['armour', 'evasion', 'barrier'];
+// Every armor slot comes in three pure base-type variants now (see equipment.js).
+const ARMOR_ARCHETYPE_IDS = ARMOR_SLOTS.flatMap((slot) => ARCHETYPES.map((a) => `${slot}_${a}`));
+const ARCHETYPE_ATTRIBUTE = { armour: 'strength', evasion: 'dexterity', barrier: 'intelligence' };
 const JEWELRY_IDS = ['ring', 'amulet', 'trinket'];
 const WEAPON_IDS = ['sword_1h', 'sword_2h', 'staff', 'bow'];
-// barrierPct has no local counterpart: local barrier has no intrinsic base
-// to scale, so only a flat local bonus makes sense (see equipment.js).
-const LOCAL_DEFENSE_STATS = ['armourFlat', 'armourPct', 'evasionFlat', 'evasionPct', 'barrierFlat'];
+const LOCAL_DEFENSE_STATS = ['armourFlat', 'armourPct', 'evasionFlat', 'evasionPct', 'barrierFlat', 'barrierPct'];
 const GLOBAL_DEFENSE_STATS = ['armourGlobalPct', 'evasionGlobalPct', 'barrierGlobalPct'];
 const VALID_STATS = [
   'strength', 'vitality', 'intelligence', 'dexterity', 'rarity', 'attackSpeedPct',
@@ -36,19 +38,51 @@ test('every base item has a valid category, shape, socket cap, and non-empty sta
   }
 });
 
-test('defensive stats: armor-slot pieces have a defenseBase + local flat/% prefixes; jewelry gets global % prefixes instead; weapons get neither', () => {
-  for (const id of ARMOR_SLOT_IDS) {
-    const item = getBaseItem(id);
-    assert.ok(item.defenseBase, `${id} should have a defenseBase`);
-    for (const key of ['armour', 'evasion']) {
-      assert.ok(item.defenseBase[key] > 0, `${id}'s defenseBase.${key} should be a small positive baseline`);
+test('each armor slot has exactly one pure base type per defence archetype, sharing shape/socketCap but not affix pools', () => {
+  for (const slot of ARMOR_SLOTS) {
+    const variants = ARCHETYPES.map((a) => getBaseItem(`${slot}_${a}`));
+    for (const item of variants) {
+      assert.ok(item, `${slot} is missing an archetype variant`);
+      assert.equal(item.slotCategory, slot);
     }
-    assert.equal(item.defenseBase.barrier, 0, `${id} should have no intrinsic Barrier baseline`);
-    const stats = item.statPool.map((e) => e.stat);
-    for (const stat of LOCAL_DEFENSE_STATS) assert.ok(stats.includes(stat), `${id} should be able to roll ${stat}`);
-    for (const stat of GLOBAL_DEFENSE_STATS) assert.ok(!stats.includes(stat), `${id} should NOT roll the jewelry-only ${stat}`);
+    // All three variants of one slot share the same physical footprint.
+    assert.equal(variants[1].shape.w, variants[0].shape.w);
+    assert.equal(variants[1].shape.h, variants[0].shape.h);
+    assert.equal(variants[2].socketCap, variants[0].socketCap);
   }
+});
 
+test('an armor piece only carries defenseBase + local prefixes for its OWN archetype, never the other two', () => {
+  for (const slot of ARMOR_SLOTS) {
+    for (const archetype of ARCHETYPES) {
+      const item = getBaseItem(`${slot}_${archetype}`);
+      assert.ok(item.defenseBase, `${item.id} should have a defenseBase`);
+      assert.ok(item.defenseBase[archetype] > 0, `${item.id}'s own defenseBase.${archetype} should be positive`);
+      for (const other of ARCHETYPES) {
+        if (other === archetype) continue;
+        assert.equal(item.defenseBase[other] || 0, 0, `${item.id} should have no ${other} baseline`);
+      }
+
+      const stats = item.statPool.map((e) => e.stat);
+      assert.ok(stats.includes(`${archetype}Flat`), `${item.id} should roll its own ${archetype}Flat`);
+      assert.ok(stats.includes(`${archetype}Pct`), `${item.id} should roll its own ${archetype}Pct`);
+      for (const other of ARCHETYPES) {
+        if (other === archetype) continue;
+        assert.ok(!stats.includes(`${other}Flat`), `${item.id} should NOT roll ${other}Flat`);
+        assert.ok(!stats.includes(`${other}Pct`), `${item.id} should NOT roll ${other}Pct`);
+      }
+      // Each archetype leans the attribute that thematically governs it.
+      assert.ok(stats.includes(ARCHETYPE_ATTRIBUTE[archetype]), `${item.id} should favor ${ARCHETYPE_ATTRIBUTE[archetype]}`);
+      for (const other of ARCHETYPES) {
+        if (other === archetype) continue;
+        assert.ok(!stats.includes(ARCHETYPE_ATTRIBUTE[other]), `${item.id} should not favor ${ARCHETYPE_ATTRIBUTE[other]}`);
+      }
+      for (const stat of GLOBAL_DEFENSE_STATS) assert.ok(!stats.includes(stat), `${item.id} should NOT roll the jewelry-only ${stat}`);
+    }
+  }
+});
+
+test('jewelry rolls global % prefixes for any of the three defence types, unrestricted; weapons get none at all', () => {
   for (const id of JEWELRY_IDS) {
     const item = getBaseItem(id);
     assert.ok(!item.defenseBase, `${id} should have no defenseBase`);
@@ -68,11 +102,13 @@ test('defensive stats: armor-slot pieces have a defenseBase + local flat/% prefi
 });
 
 test('jewelry has no sockets; armor and weapons do', () => {
-  for (const id of ['ring', 'amulet', 'trinket']) {
+  for (const id of JEWELRY_IDS) {
     assert.equal(getBaseItem(id).socketCap, 0);
   }
-  for (const id of ['helmet', 'legs']) assert.equal(getBaseItem(id).socketCap, 4);
-  assert.equal(getBaseItem('chest').socketCap, 6);
+  for (const id of ARMOR_ARCHETYPE_IDS) {
+    const expected = id.startsWith('chest_') ? 6 : 4;
+    assert.equal(getBaseItem(id).socketCap, expected, `${id} has an unexpected socketCap`);
+  }
 });
 
 test('weapon handedness matches the sockets/range rules: 1h caps at 3, 2h caps at 6', () => {
@@ -106,7 +142,7 @@ test('SLOT_CATEGORY covers every paperdoll slot and matches ring/trinket/offhand
 });
 
 test('getBaseItem resolves known ids and returns undefined for unknown ones', () => {
-  assert.equal(getBaseItem('helmet').slotCategory, 'helmet');
+  assert.equal(getBaseItem('helmet_armour').slotCategory, 'helmet');
   assert.equal(getBaseItem('not_real'), undefined);
   assert.equal(BASE_ITEM_IDS.includes('bow'), true);
 });

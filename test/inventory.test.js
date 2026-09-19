@@ -5,7 +5,7 @@ import * as inv from '../src/inventory.js';
 import { getBaseItem } from '../src/equipment.js';
 
 function helmetItem(intelligence = 3, tier = 'basic') {
-  return { kind: 'equipment', defId: 'helmet', tier, w: 2, h: 2, sockets: [null, null, null, null], affixes: { intelligence } };
+  return { kind: 'equipment', defId: 'helmet_armour', tier, w: 2, h: 2, sockets: [null, null, null, null], affixes: { intelligence } };
 }
 function sword1h(strength = 2) {
   return { kind: 'equipment', defId: 'sword_1h', tier: 'basic', w: 1, h: 3, sockets: [null, null, null], affixes: { strength } };
@@ -51,7 +51,7 @@ test('inventory: currency, loot items, and sockets', async (t) => {
   await t.test('addLootItem places a shaped item in the bag', () => {
     const ok = inv.addLootItem(helmetItem());
     assert.equal(ok, true);
-    const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet');
+    const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet_armour');
     assert.ok(helmet);
     assert.equal(helmet.w, 2);
     assert.equal(helmet.h, 2);
@@ -59,18 +59,18 @@ test('inventory: currency, loot items, and sockets', async (t) => {
   });
 
   await t.test('equipping moves the item out of the bag and into the paperdoll', () => {
-    const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet');
+    const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet_armour');
     const ok = inv.equipItem(helmet.instanceId);
     assert.equal(ok, true);
-    assert.equal(inv.getGeneralGrid().items.some((i) => i.defId === 'helmet'), false);
-    assert.equal(inv.getEquipped().helmet.defId, 'helmet');
+    assert.equal(inv.getGeneralGrid().items.some((i) => i.defId === 'helmet_armour'), false);
+    assert.equal(inv.getEquipped().helmet.defId, 'helmet_armour');
   });
 
   await t.test('equipping a second helmet swaps the first back into the bag', () => {
     inv.addLootItem(helmetItem(4));
-    const secondHelmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet');
+    const secondHelmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet_armour');
     inv.equipItem(secondHelmet.instanceId);
-    assert.equal(inv.getGeneralGrid().items.filter((i) => i.defId === 'helmet').length, 1);
+    assert.equal(inv.getGeneralGrid().items.filter((i) => i.defId === 'helmet_armour').length, 1);
     assert.equal(inv.getEquipped().helmet.instanceId, secondHelmet.instanceId);
   });
 
@@ -178,10 +178,10 @@ test('inventory: getSocketedGemGroups groups gem ids by equipped item, not flatt
   for (const g of [...inv.getGemGrid().items]) inv.discardItem('gem', g.instanceId);
   assert.deepEqual(inv.getSocketedGemGroups(), []);
 
-  inv.addLootItem({ kind: 'equipment', defId: 'helmet', tier: 'basic', w: 2, h: 2, sockets: [null, null], affixes: { intelligence: 10 } });
-  inv.addLootItem({ kind: 'equipment', defId: 'chest', tier: 'basic', w: 2, h: 3, sockets: [null, null], affixes: { strength: 10 } });
-  const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet');
-  const chest = inv.getGeneralGrid().items.find((i) => i.defId === 'chest');
+  inv.addLootItem({ kind: 'equipment', defId: 'helmet_armour', tier: 'basic', w: 2, h: 2, sockets: [null, null], affixes: { intelligence: 10 } });
+  inv.addLootItem({ kind: 'equipment', defId: 'chest_armour', tier: 'basic', w: 2, h: 3, sockets: [null, null], affixes: { strength: 10 } });
+  const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet_armour');
+  const chest = inv.getGeneralGrid().items.find((i) => i.defId === 'chest_armour');
   assert.equal(inv.equipItem(helmet.instanceId), true);
   assert.equal(inv.equipItem(chest.instanceId), true);
 
@@ -257,7 +257,7 @@ test('inventory: tier crafting with Cinder Shards/Fragments', async (t) => {
 
 test('inventory: selling returns roughly a third of the item value as Cinder Shards', () => {
   inv.addLootItem(helmetItem(4, 'basic'));
-  const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet' && i.tier === 'basic');
+  const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet_armour' && i.tier === 'basic');
   const before = inv.getBalance('cinderShard');
   const payout = inv.sellItem(helmet.instanceId);
   assert.ok(payout > 0);
@@ -275,10 +275,10 @@ test('inventory: getDefenseStats combines local armor-piece scaling, jewelry glo
   }
 
   inv.addLootItem({
-    kind: 'equipment', defId: 'helmet', tier: 'rare', w: 2, h: 2, sockets: [null, null],
+    kind: 'equipment', defId: 'helmet_armour', tier: 'rare', w: 2, h: 2, sockets: [null, null],
     affixes: { armourFlat: 3, armourPct: 0.1 },
   });
-  const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet' && i.affixes.armourFlat === 3);
+  const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet_armour' && i.affixes.armourFlat === 3);
   assert.equal(inv.equipItem(helmet.instanceId, 'helmet'), true);
 
   inv.addLootItem({
@@ -288,7 +288,7 @@ test('inventory: getDefenseStats combines local armor-piece scaling, jewelry glo
   const ring = inv.getGeneralGrid().items.find((i) => i.defId === 'ring' && i.affixes.armourGlobalPct === 0.2);
   assert.equal(inv.equipItem(ring.instanceId, 'ring1'), true);
 
-  const helmetBase = getBaseItem('helmet');
+  const helmetBase = getBaseItem('helmet_armour');
   const totalStats = inv.getTotalStats();
   // (defenseBase.armour + armourFlat) * (1 + armourPct), plus strength's own
   // contribution, all then scaled by the ring's global % on top.

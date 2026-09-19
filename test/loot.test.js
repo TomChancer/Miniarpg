@@ -72,8 +72,8 @@ test('generateLootItem with maxTier:"uncommon" never rolls rare (merchant stock 
 
 test("an item's affix count never exceeds its tier's total cap, and respects the prefix/suffix sub-caps", () => {
   for (let i = 0; i < 300; i++) {
-    const item = generateLootItem('chest');
-    const base = getBaseItem('chest');
+    const item = generateLootItem('chest_armour');
+    const base = getBaseItem('chest_armour');
     const caps = TIER_AFFIX_CAPS[item.tier];
     const entries = Object.entries(item.affixes);
     assert.ok(entries.length <= caps.total, `tier ${item.tier} rolled ${entries.length} affixes, cap is ${caps.total}`);
@@ -94,7 +94,7 @@ test('a rare-tier item can roll up to its full 4-affix cap (2 prefix + 2 suffix)
   // (rarity/attackSpeedPct), so a rare roll should be able to reach 4/4.
   let sawFour = false;
   for (let i = 0; i < 500 && !sawFour; i++) {
-    const item = generateLootItem('chest');
+    const item = generateLootItem('chest_armour');
     if (item.tier === 'rare' && Object.keys(item.affixes).length === 4) sawFour = true;
   }
   assert.ok(sawFour, 'never saw a rare chest roll all 4 affixes across 500 tries');
@@ -151,22 +151,29 @@ test('itemValue grows with sockets and affix count', () => {
   assert.ok(itemValue(affixed) > itemValue(bare));
 });
 
-test('itemDefenseBreakdown computes local base+flat*(1+pct) math for armor pieces', () => {
-  const bare = { defId: 'chest', affixes: {} };
+test('itemDefenseBreakdown computes local base+flat*(1+pct) math for a pure-archetype armor piece', () => {
+  const bare = { defId: 'chest_armour', affixes: {} };
   const bareBreakdown = itemDefenseBreakdown(bare);
-  // Chest's intrinsic armour/evasion baseline still shows up with no affixes at all.
+  // A pure Armour-type chest shows its intrinsic baseline with no affixes at all...
   assert.equal(bareBreakdown.armour.kind, 'local');
-  assert.equal(bareBreakdown.armour.total, getBaseItem('chest').defenseBase.armour);
-  assert.equal(bareBreakdown.evasion.total, getBaseItem('chest').defenseBase.evasion);
-  // No intrinsic Barrier baseline, and no barrier affix rolled -> omitted entirely.
+  assert.equal(bareBreakdown.armour.total, getBaseItem('chest_armour').defenseBase.armour);
+  // ...and has no Evasion or Barrier contribution whatsoever -- it's a pure type.
+  assert.equal('evasion' in bareBreakdown, false);
   assert.equal('barrier' in bareBreakdown, false);
 
-  const rolled = { defId: 'chest', affixes: { armourFlat: 4, armourPct: 0.2, barrierFlat: 5 } };
+  const rolled = { defId: 'chest_armour', affixes: { armourFlat: 4, armourPct: 0.2 } };
   const breakdown = itemDefenseBreakdown(rolled);
-  const chestBase = getBaseItem('chest').defenseBase;
+  const chestBase = getBaseItem('chest_armour').defenseBase;
   assert.equal(breakdown.armour.total, (chestBase.armour + 4) * 1.2);
-  assert.equal(breakdown.barrier.kind, 'local');
-  assert.equal(breakdown.barrier.total, 0 + 5); // no intrinsic base, no pct -- pure flat
+
+  // A pure Barrier-type piece has a real intrinsic base, so its local %
+  // prefix is meaningful (unlike the old hybrid design where Barrier's
+  // local base was always zero).
+  const barrierPiece = { defId: 'chest_barrier', affixes: { barrierFlat: 5, barrierPct: 0.25 } };
+  const barrierBreakdown = itemDefenseBreakdown(barrierPiece);
+  const barrierBase = getBaseItem('chest_barrier').defenseBase.barrier;
+  assert.equal(barrierBreakdown.barrier.total, (barrierBase + 5) * 1.25);
+  assert.equal('armour' in barrierBreakdown, false);
 });
 
 test('itemDefenseBreakdown reports jewelry global % prefixes distinctly from local ones', () => {

@@ -8,13 +8,15 @@
 // Attack Speed) so loot.js/craft logic can enforce per-tier caps on each
 // affix type separately.
 //
-// Defence (see defense.js): armour-slot pieces (helmet/chest/legs, never
-// weapons) carry a small intrinsic `defenseBase` plus LOCAL flat/% prefixes
-// that scale that same piece's own base value: (defenseBase + Flat) * (1 +
-// Pct). Jewelry (ring/amulet/trinket) can't roll those locals at all —
-// instead it gets a GLOBAL % prefix (armourGlobalPct etc.) that scales the
-// character's final total for that defence type. See
-// inventory.js#getDefenseStats for the aggregation.
+// Defence (see defense.js): each armor slot (helmet/chest/legs) comes in
+// three pure base-type variants — `<slot>_armour`, `<slot>_evasion`,
+// `<slot>_barrier` — sharing the same slotCategory/shape/socketCap but each
+// with an intrinsic `defenseBase` for ONLY its own type, scaled by that same
+// piece's LOCAL flat/% prefixes: (defenseBase + Flat) * (1 + Pct). Weapons
+// carry no defence at all. Jewelry (ring/amulet/trinket) can't roll those
+// locals — instead it gets a GLOBAL % prefix (armourGlobalPct etc., any of
+// the three, unrestricted) that scales the character's final total for that
+// defence type. See inventory.js#getDefenseStats for the aggregation.
 export const SLOTS = [
   'helmet', 'chest', 'legs',
   'ring1', 'ring2',
@@ -32,60 +34,81 @@ export const SLOT_CATEGORY = {
   weapon: 'weapon', offhand: 'weapon',
 };
 
-// Local defensive prefixes (flat + %) roll only on armor-slot pieces
-// (helmet/chest/legs -- never weapons) and scale that SAME piece's own
-// `defenseBase` value: (defenseBase + flat) * (1 + pct). Every armor piece
-// gets a small intrinsic amount of Armour and Evasion (per the current
-// one-item-per-slot design), but no intrinsic Barrier -- Barrier only comes
-// from Intelligence's own contribution (see inventory.js) and rolled
-// affixes, never as a free baseline. Since local barrier has no base to
-// scale, it only gets a flat prefix (a local "% increased Barrier" would
-// multiply zero); Barrier's own % scaling instead lives on jewelry's
-// GLOBAL prefix, which multiplies the intelligence-derived total instead.
-// DEFENSE_PREFIXES is shared by all three armor pieces so a future new base
-// item just needs its own `defenseBase` + this same block.
-const DEFENSE_PREFIXES = [
-  { stat: 'armourFlat', min: 2, max: 5, type: 'prefix' },
-  { stat: 'armourPct', min: 8, max: 15, type: 'prefix' },
-  { stat: 'evasionFlat', min: 2, max: 5, type: 'prefix' },
-  { stat: 'evasionPct', min: 8, max: 15, type: 'prefix' },
-  { stat: 'barrierFlat', min: 3, max: 7, type: 'prefix' },
-];
+// Armor-slot pieces (helmet/chest/legs, never weapons) now come in three
+// PURE base types per slot, PoE-style: an Armour piece only ever rolls
+// Armour's local prefixes (and leans Strength), an Evasion piece only rolls
+// Evasion's (leans Dexterity), a Barrier piece only rolls Barrier's (leans
+// Intelligence). Each has a real intrinsic `defenseBase` for its own type
+// only, which its local flat/% prefixes scale: (defenseBase + Flat) * (1 +
+// Pct). No piece is a hybrid — pick your archetype by which item you wear,
+// not by which affixes happened to roll. Vitality stays universal across
+// all three since it isn't one of the three defence-governing attributes.
+function armourPrefixes(flatRange) {
+  return [
+    { stat: 'armourFlat', min: flatRange[0], max: flatRange[1], type: 'prefix' },
+    { stat: 'armourPct', min: 8, max: 15, type: 'prefix' },
+  ];
+}
+function evasionPrefixes(flatRange) {
+  return [
+    { stat: 'evasionFlat', min: flatRange[0], max: flatRange[1], type: 'prefix' },
+    { stat: 'evasionPct', min: 8, max: 15, type: 'prefix' },
+  ];
+}
+function barrierPrefixes(flatRange) {
+  return [
+    { stat: 'barrierFlat', min: flatRange[0], max: flatRange[1], type: 'prefix' },
+    { stat: 'barrierPct', min: 8, max: 15, type: 'prefix' },
+  ];
+}
 
-export const BASE_ITEMS = {
-  helmet: {
-    id: 'helmet', name: 'Helmet', slotCategory: 'helmet', shape: { w: 2, h: 2 }, socketCap: 4,
-    defenseBase: { armour: 2, evasion: 2, barrier: 0 },
-    statPool: [
-      { stat: 'intelligence', min: 2, max: 5, type: 'prefix' }, { stat: 'intelligence', min: 2, max: 5, type: 'prefix' },
-      { stat: 'vitality', min: 1, max: 3, type: 'prefix' },
-      ...DEFENSE_PREFIXES,
-      { stat: 'rarity', min: 1, max: 3, type: 'suffix' },
-      { stat: 'attackSpeedPct', min: 2, max: 5, type: 'suffix' },
-    ],
-  },
-  chest: {
-    id: 'chest', name: 'Chestplate', slotCategory: 'chest', shape: { w: 2, h: 3 }, socketCap: 6,
-    defenseBase: { armour: 5, evasion: 2, barrier: 0 },
+// name: [Armour, Evasion, Barrier] flavor names per slot, and per-slot shape.
+const ARMOR_SLOTS = {
+  helmet: { names: ['Great Helm', 'Leather Cap', 'Circlet'], shape: { w: 2, h: 2 }, socketCap: 4, base: 5, flatRange: [3, 6] },
+  chest: { names: ['Plate Armor', 'Leather Armor', 'Silk Robe'], shape: { w: 2, h: 3 }, socketCap: 6, base: 8, flatRange: [4, 8] },
+  legs: { names: ['Plate Greaves', 'Leather Leggings', 'Silk Leggings'], shape: { w: 2, h: 2 }, socketCap: 4, base: 5, flatRange: [3, 6] },
+};
+
+const ARMOR_ARCHETYPE_ITEMS = {};
+for (const [slotCategory, { names, shape, socketCap, base, flatRange }] of Object.entries(ARMOR_SLOTS)) {
+  const [armourName, evasionName, barrierName] = names;
+  ARMOR_ARCHETYPE_ITEMS[`${slotCategory}_armour`] = {
+    id: `${slotCategory}_armour`, name: armourName, slotCategory, shape, socketCap,
+    defenseBase: { armour: base },
     statPool: [
       { stat: 'strength', min: 2, max: 5, type: 'prefix' }, { stat: 'strength', min: 2, max: 5, type: 'prefix' },
-      { stat: 'vitality', min: 2, max: 5, type: 'prefix' }, { stat: 'vitality', min: 2, max: 5, type: 'prefix' },
-      ...DEFENSE_PREFIXES,
+      { stat: 'vitality', min: 1, max: 3, type: 'prefix' },
+      ...armourPrefixes(flatRange),
       { stat: 'rarity', min: 1, max: 3, type: 'suffix' },
       { stat: 'attackSpeedPct', min: 2, max: 5, type: 'suffix' },
     ],
-  },
-  legs: {
-    id: 'legs', name: 'Leggings', slotCategory: 'legs', shape: { w: 2, h: 2 }, socketCap: 4,
-    defenseBase: { armour: 2, evasion: 5, barrier: 0 },
+  };
+  ARMOR_ARCHETYPE_ITEMS[`${slotCategory}_evasion`] = {
+    id: `${slotCategory}_evasion`, name: evasionName, slotCategory, shape, socketCap,
+    defenseBase: { evasion: base },
     statPool: [
       { stat: 'dexterity', min: 2, max: 5, type: 'prefix' }, { stat: 'dexterity', min: 2, max: 5, type: 'prefix' },
       { stat: 'vitality', min: 1, max: 3, type: 'prefix' },
-      ...DEFENSE_PREFIXES,
+      ...evasionPrefixes(flatRange),
       { stat: 'rarity', min: 1, max: 3, type: 'suffix' },
       { stat: 'attackSpeedPct', min: 2, max: 5, type: 'suffix' },
     ],
-  },
+  };
+  ARMOR_ARCHETYPE_ITEMS[`${slotCategory}_barrier`] = {
+    id: `${slotCategory}_barrier`, name: barrierName, slotCategory, shape, socketCap,
+    defenseBase: { barrier: base },
+    statPool: [
+      { stat: 'intelligence', min: 2, max: 5, type: 'prefix' }, { stat: 'intelligence', min: 2, max: 5, type: 'prefix' },
+      { stat: 'vitality', min: 1, max: 3, type: 'prefix' },
+      ...barrierPrefixes(flatRange),
+      { stat: 'rarity', min: 1, max: 3, type: 'suffix' },
+      { stat: 'attackSpeedPct', min: 2, max: 5, type: 'suffix' },
+    ],
+  };
+}
+
+export const BASE_ITEMS = {
+  ...ARMOR_ARCHETYPE_ITEMS,
   ring: {
     id: 'ring', name: 'Ring', slotCategory: 'ring', shape: { w: 1, h: 1 }, socketCap: 0,
     statPool: [

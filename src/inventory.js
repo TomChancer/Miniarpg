@@ -22,9 +22,11 @@ const GENERAL_H = 8;
 const GEM_W = 5;
 const GEM_H = 6;
 
-// Bumped: gear items now carry a `tier` (Basic/Uncommon/Rare/Unique) driving
-// their affix caps.
-const STATE_KEY = 'miniarpg.inventory.v5';
+// Bumped: armor pieces split from one hybrid base item per slot into three
+// pure archetype variants (<slot>_armour/_evasion/_barrier); old saved
+// items referencing the removed 'helmet'/'chest'/'legs' ids would otherwise
+// resolve to nothing.
+const STATE_KEY = 'miniarpg.inventory.v6';
 
 function defaultState() {
   return {
@@ -418,8 +420,11 @@ export function getDefenseStats() {
     if (!item) continue;
     const base = getBaseItem(item.defId);
     if (base.defenseBase) {
+      // Each armor piece is a pure archetype now (see equipment.js) -- its
+      // defenseBase only has ONE of the three keys, so the other two fall
+      // back to zero here rather than NaN-ing the whole aggregation.
       for (const key of DEFENSE_TYPES) {
-        const flat = base.defenseBase[key] + (item.affixes?.[`${key}Flat`] || 0);
+        const flat = (base.defenseBase[key] || 0) + (item.affixes?.[`${key}Flat`] || 0);
         const pctMul = 1 + (item.affixes?.[`${key}Pct`] || 0);
         local[key] += flat * pctMul;
       }

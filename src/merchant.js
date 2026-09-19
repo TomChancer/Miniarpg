@@ -1,7 +1,9 @@
 import { BASE_ITEM_IDS } from './equipment.js';
 import { generateLootItem, itemValue } from './loot.js';
 
-const STATE_KEY = 'miniarpg.merchant.v1';
+// Bumped alongside inventory.js: stale stock could reference the removed
+// hybrid 'helmet'/'chest'/'legs' base item ids.
+const STATE_KEY = 'miniarpg.merchant.v2';
 const MIN_STOCK = 4;
 const MAX_STOCK = 10;
 
