@@ -3,10 +3,18 @@
 // from one of these. `statPool` entries can repeat a stat to bias the odds
 // of rolling it (a cheap stand-in for real weighted random).
 //
-// Each entry is tagged `prefix` (the four main attributes, plus defensive
-// bonuses once those exist) or `suffix` (everything else — currently just
-// Rarity and Attack Speed) so loot.js/craft logic can enforce per-tier caps
-// on each affix type separately.
+// Each entry is tagged `prefix` (the four main attributes, plus the defensive
+// stats below) or `suffix` (everything else — currently just Rarity and
+// Attack Speed) so loot.js/craft logic can enforce per-tier caps on each
+// affix type separately.
+//
+// Defence (see defense.js): armour-slot pieces (helmet/chest/legs, never
+// weapons) carry a small intrinsic `defenseBase` plus LOCAL flat/% prefixes
+// that scale that same piece's own base value: (defenseBase + Flat) * (1 +
+// Pct). Jewelry (ring/amulet/trinket) can't roll those locals at all —
+// instead it gets a GLOBAL % prefix (armourGlobalPct etc.) that scales the
+// character's final total for that defence type. See
+// inventory.js#getDefenseStats for the aggregation.
 export const SLOTS = [
   'helmet', 'chest', 'legs',
   'ring1', 'ring2',
@@ -24,30 +32,51 @@ export const SLOT_CATEGORY = {
   weapon: 'weapon', offhand: 'weapon',
 };
 
+// Local defensive prefixes (flat + %) roll only on armor-slot pieces
+// (helmet/chest/legs -- never weapons) and scale that SAME piece's own
+// `defenseBase` value: (defenseBase + flat) * (1 + pct). Every armor piece
+// gets a small amount of all three defence types per the current one-item-
+// per-slot design; DEFENSE_PREFIXES is shared by all three so a future new
+// base item just needs its own `defenseBase` + this same block.
+const DEFENSE_PREFIXES = [
+  { stat: 'armourFlat', min: 2, max: 5, type: 'prefix' },
+  { stat: 'armourPct', min: 8, max: 15, type: 'prefix' },
+  { stat: 'evasionFlat', min: 2, max: 5, type: 'prefix' },
+  { stat: 'evasionPct', min: 8, max: 15, type: 'prefix' },
+  { stat: 'barrierFlat', min: 2, max: 5, type: 'prefix' },
+  { stat: 'barrierPct', min: 8, max: 15, type: 'prefix' },
+];
+
 export const BASE_ITEMS = {
   helmet: {
     id: 'helmet', name: 'Helmet', slotCategory: 'helmet', shape: { w: 2, h: 2 }, socketCap: 4,
+    defenseBase: { armour: 2, evasion: 2, barrier: 5 },
     statPool: [
       { stat: 'intelligence', min: 2, max: 5, type: 'prefix' }, { stat: 'intelligence', min: 2, max: 5, type: 'prefix' },
       { stat: 'vitality', min: 1, max: 3, type: 'prefix' },
+      ...DEFENSE_PREFIXES,
       { stat: 'rarity', min: 1, max: 3, type: 'suffix' },
       { stat: 'attackSpeedPct', min: 2, max: 5, type: 'suffix' },
     ],
   },
   chest: {
     id: 'chest', name: 'Chestplate', slotCategory: 'chest', shape: { w: 2, h: 3 }, socketCap: 6,
+    defenseBase: { armour: 5, evasion: 2, barrier: 2 },
     statPool: [
       { stat: 'strength', min: 2, max: 5, type: 'prefix' }, { stat: 'strength', min: 2, max: 5, type: 'prefix' },
       { stat: 'vitality', min: 2, max: 5, type: 'prefix' }, { stat: 'vitality', min: 2, max: 5, type: 'prefix' },
+      ...DEFENSE_PREFIXES,
       { stat: 'rarity', min: 1, max: 3, type: 'suffix' },
       { stat: 'attackSpeedPct', min: 2, max: 5, type: 'suffix' },
     ],
   },
   legs: {
     id: 'legs', name: 'Leggings', slotCategory: 'legs', shape: { w: 2, h: 2 }, socketCap: 4,
+    defenseBase: { armour: 2, evasion: 5, barrier: 2 },
     statPool: [
       { stat: 'dexterity', min: 2, max: 5, type: 'prefix' }, { stat: 'dexterity', min: 2, max: 5, type: 'prefix' },
       { stat: 'vitality', min: 1, max: 3, type: 'prefix' },
+      ...DEFENSE_PREFIXES,
       { stat: 'rarity', min: 1, max: 3, type: 'suffix' },
       { stat: 'attackSpeedPct', min: 2, max: 5, type: 'suffix' },
     ],
@@ -57,6 +86,9 @@ export const BASE_ITEMS = {
     statPool: [
       { stat: 'strength', min: 1, max: 3, type: 'prefix' }, { stat: 'vitality', min: 1, max: 3, type: 'prefix' },
       { stat: 'intelligence', min: 1, max: 3, type: 'prefix' }, { stat: 'dexterity', min: 1, max: 3, type: 'prefix' },
+      { stat: 'armourGlobalPct', min: 5, max: 10, type: 'prefix' },
+      { stat: 'evasionGlobalPct', min: 5, max: 10, type: 'prefix' },
+      { stat: 'barrierGlobalPct', min: 5, max: 10, type: 'prefix' },
       { stat: 'rarity', min: 1, max: 3, type: 'suffix' }, { stat: 'attackSpeedPct', min: 1, max: 3, type: 'suffix' },
     ],
   },
@@ -65,6 +97,9 @@ export const BASE_ITEMS = {
     statPool: [
       { stat: 'strength', min: 2, max: 4, type: 'prefix' }, { stat: 'vitality', min: 2, max: 4, type: 'prefix' },
       { stat: 'intelligence', min: 2, max: 4, type: 'prefix' }, { stat: 'dexterity', min: 2, max: 4, type: 'prefix' },
+      { stat: 'armourGlobalPct', min: 6, max: 12, type: 'prefix' },
+      { stat: 'evasionGlobalPct', min: 6, max: 12, type: 'prefix' },
+      { stat: 'barrierGlobalPct', min: 6, max: 12, type: 'prefix' },
       { stat: 'rarity', min: 2, max: 4, type: 'suffix' }, { stat: 'attackSpeedPct', min: 2, max: 4, type: 'suffix' },
     ],
   },
@@ -74,6 +109,9 @@ export const BASE_ITEMS = {
       { stat: 'rarity', min: 2, max: 5, type: 'suffix' }, { stat: 'rarity', min: 2, max: 5, type: 'suffix' }, { stat: 'rarity', min: 2, max: 5, type: 'suffix' },
       { stat: 'strength', min: 1, max: 2, type: 'prefix' }, { stat: 'vitality', min: 1, max: 2, type: 'prefix' },
       { stat: 'intelligence', min: 1, max: 2, type: 'prefix' }, { stat: 'dexterity', min: 1, max: 2, type: 'prefix' },
+      { stat: 'armourGlobalPct', min: 5, max: 10, type: 'prefix' },
+      { stat: 'evasionGlobalPct', min: 5, max: 10, type: 'prefix' },
+      { stat: 'barrierGlobalPct', min: 5, max: 10, type: 'prefix' },
     ],
   },
   sword_1h: {

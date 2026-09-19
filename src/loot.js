@@ -89,7 +89,10 @@ export function rollOneAffix(base, type, existingAffixes) {
   const statCandidates = candidates.filter((e) => e.stat === stat);
   const { min, max } = statCandidates[Math.floor(Math.random() * statCandidates.length)];
   const rolled = rollInt(min, max);
-  return { stat, amount: stat === 'attackSpeedPct' ? rolled / 100 : rolled };
+  // Every "...Pct" stat (attackSpeedPct, armourPct, evasionGlobalPct, ...) is
+  // rolled in whole percent but stored as a fraction, same convention as
+  // attackSpeedPct originally used.
+  return { stat, amount: stat.endsWith('Pct') ? rolled / 100 : rolled };
 }
 
 // Rolls up to the tier's total affix cap, respecting its prefix/suffix

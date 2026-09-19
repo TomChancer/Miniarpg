@@ -1,7 +1,9 @@
+import { armourMitigation, evasionChance, BARRIER_RECHARGE_DELAY_SEC, BARRIER_RECHARGE_PCT_PER_SEC } from './defense.js';
+
 const MANA_REGEN_PCT_PER_SEC = 0.08;
 
 export class Character {
-  constructor(x, y, stats, mods = {}) {
+  constructor(x, y, stats, mods = {}, defense = {}) {
     this.x = x;
     this.y = y;
     this.radius = 22;
@@ -21,7 +23,16 @@ export class Character {
     this.hp = this.maxHp;
     this.maxMana = (20 + this.intelligence * 6) * (mods.manaMultiplier || 1);
     this.mana = this.maxMana;
-    this.evasionChance = Math.min(0.6, this.dexterity * 0.02);
+
+    // Armour and Evasion mitigate/avoid a hit; Barrier is a separate
+    // shield-like pool that absorbs damage before HP (see defense.js).
+    this.armour = defense.armour || 0;
+    this.evasion = defense.evasion || 0;
+    this.armourMitigation = armourMitigation(this.armour);
+    this.evasionChance = evasionChance(this.evasion);
+    this.maxBarrier = defense.barrierCapacity || 0;
+    this.barrier = this.maxBarrier;
+    this.barrierRechargeDelayTimer = 0;
   }
 
   isAlive() {
@@ -37,6 +48,32 @@ export class Character {
       this.maxMana,
       this.mana + this.maxMana * MANA_REGEN_PCT_PER_SEC * this.manaRegenMultiplier * dt
     );
+  }
+
+  // Recharges only once `barrierRechargeDelayTimer` has fully counted down --
+  // any hit that reaches the barrier resets that timer (see combat.js).
+  regenBarrier(dt) {
+    if (this.barrierRechargeDelayTimer > 0) {
+      this.barrierRechargeDelayTimer = Math.max(0, this.barrierRechargeDelayTimer - dt);
+      return;
+    }
+    if (this.barrier < this.maxBarrier) {
+      this.barrier = Math.min(this.maxBarrier, this.barrier + this.maxBarrier * BARRIER_RECHARGE_PCT_PER_SEC * dt);
+    }
+  }
+
+  // Applies one hit through the full defence pipeline (armour mitigation,
+  // then Barrier absorption, then HP) and resets the recharge delay. Evasion
+  // is checked by the caller beforehand -- an evaded hit never reaches this.
+  takeHit(rawDamage) {
+    let remaining = rawDamage * (1 - this.armourMitigation);
+    if (this.barrier > 0) {
+      const absorbed = Math.min(this.barrier, remaining);
+      this.barrier -= absorbed;
+      remaining -= absorbed;
+    }
+    this.barrierRechargeDelayTimer = BARRIER_RECHARGE_DELAY_SEC;
+    this.hp = Math.max(0, this.hp - remaining);
   }
 }
 

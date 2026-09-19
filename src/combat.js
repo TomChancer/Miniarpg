@@ -1,7 +1,7 @@
 import { Character, Enemy, Projectile, buildWave } from './entities.js';
 import { PUNCH_SKILL, getGemById } from './gems.js';
 import {
-  getSocketedGemGroups, getSpeedMultiplier, getTotalStats, meetsRequirement, getWeaponMods, CURRENCIES,
+  getSocketedGemGroups, getSpeedMultiplier, getTotalStats, getDefenseStats, meetsRequirement, getWeaponMods, CURRENCIES,
 } from './inventory.js';
 import { resolveSkill, supportsFor } from './skillResolution.js';
 import { getPlayerKeystoneMods, getMapModifiers } from './progression.js';
@@ -36,6 +36,7 @@ export class CombatScene {
     this.mapMods = getMapModifiers();
 
     const stats = getTotalStats();
+    const defenseStats = getDefenseStats();
     const keystoneMods = getPlayerKeystoneMods();
     const weaponMods = getWeaponMods();
     this.weaponRangeMultiplier = weaponMods.rangeMultiplier;
@@ -43,7 +44,7 @@ export class CombatScene {
       ...keystoneMods,
       damageMultiplier: keystoneMods.damageMultiplier * weaponMods.damageMultiplier,
     };
-    this.character = new Character(this.width / 2, this.height * 0.62, stats, combinedMods);
+    this.character = new Character(this.width / 2, this.height * 0.62, stats, combinedMods, defenseStats);
     this.enemies = [];
     this.projectiles = [];
     this.effects = [];
@@ -89,6 +90,7 @@ export class CombatScene {
     this.callbacks.onWaveChange(this.wave);
     this.callbacks.onHpChange(this.character.hp, this.character.maxHp);
     this.callbacks.onManaChange(this.character.mana, this.character.maxMana);
+    this.callbacks.onBarrierChange(this.character.barrier, this.character.maxBarrier);
     this.callbacks.onCurrencyChange(0);
 
     this.running = true;
@@ -192,16 +194,19 @@ export class CombatScene {
           if (Math.random() < ch.evasionChance) {
             this.evadeFlashTimer = EVADE_FLASH_DURATION;
           } else {
-            ch.hp = Math.max(0, ch.hp - enemy.damage);
+            ch.takeHit(enemy.damage);
             this.callbacks.onHpChange(ch.hp, ch.maxHp);
+            this.callbacks.onBarrierChange(ch.barrier, ch.maxBarrier);
           }
         }
       }
     }
 
-    // --- mana regen ---
+    // --- mana & barrier regen ---
     ch.regenMana(dt);
     this.callbacks.onManaChange(ch.mana, ch.maxMana);
+    ch.regenBarrier(dt);
+    this.callbacks.onBarrierChange(ch.barrier, ch.maxBarrier);
 
     // --- character auto-attack: every active skill fires independently ---
     for (const skill of this.skills) {

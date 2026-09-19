@@ -2,6 +2,7 @@ import '../testlib/env.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as inv from '../src/inventory.js';
+import { getBaseItem } from '../src/equipment.js';
 
 function helmetItem(intelligence = 3, tier = 'basic') {
   return { kind: 'equipment', defId: 'helmet', tier, w: 2, h: 2, sockets: [null, null, null, null], affixes: { intelligence } };
@@ -219,7 +220,8 @@ test('inventory: tier crafting with Cinder Shards/Fragments', async (t) => {
     assert.equal(upgraded.tier, 'uncommon');
     assert.equal(Object.keys(upgraded.affixes).length, 2); // rarity (suffix) + one prefix now
     assert.ok('rarity' in upgraded.affixes);
-    const hasPrefix = ['strength', 'vitality', 'intelligence', 'dexterity'].some((s) => s in upgraded.affixes);
+    const prefixStats = ['strength', 'vitality', 'intelligence', 'dexterity', 'armourGlobalPct', 'evasionGlobalPct', 'barrierGlobalPct'];
+    const hasPrefix = prefixStats.some((s) => s in upgraded.affixes);
     assert.ok(hasPrefix, 'expected the missing prefix to be filled in');
   });
 
@@ -263,4 +265,36 @@ test('inventory: selling returns roughly a third of the item value as Cinder Sha
   assert.equal(inv.getGeneralGrid().items.some((i) => i.instanceId === helmet.instanceId), false);
 
   assert.equal(inv.sellItem(999999), false);
+});
+
+test('inventory: getDefenseStats combines local armor-piece scaling, jewelry global % scalers, and each attribute\'s own contribution', () => {
+  // Every armor-slot piece contributes its own local armour, so this test
+  // needs to own ALL of them (not just helmet) to compute a precise expectation.
+  for (const slot of ['helmet', 'chest', 'legs', 'ring1']) {
+    if (inv.getEquipped()[slot]) inv.unequipItem(slot);
+  }
+
+  inv.addLootItem({
+    kind: 'equipment', defId: 'helmet', tier: 'rare', w: 2, h: 2, sockets: [null, null],
+    affixes: { armourFlat: 3, armourPct: 0.1 },
+  });
+  const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet' && i.affixes.armourFlat === 3);
+  assert.equal(inv.equipItem(helmet.instanceId, 'helmet'), true);
+
+  inv.addLootItem({
+    kind: 'equipment', defId: 'ring', tier: 'rare', w: 1, h: 1, sockets: [],
+    affixes: { armourGlobalPct: 0.2 },
+  });
+  const ring = inv.getGeneralGrid().items.find((i) => i.defId === 'ring' && i.affixes.armourGlobalPct === 0.2);
+  assert.equal(inv.equipItem(ring.instanceId, 'ring1'), true);
+
+  const helmetBase = getBaseItem('helmet');
+  const totalStats = inv.getTotalStats();
+  // (defenseBase.armour + armourFlat) * (1 + armourPct), plus strength's own
+  // contribution, all then scaled by the ring's global % on top.
+  const localArmour = (helmetBase.defenseBase.armour + 3) * (1 + 0.1);
+  const expectedArmour = (localArmour + totalStats.strength * 2) * (1 + 0.2);
+
+  const defense = inv.getDefenseStats();
+  assert.ok(Math.abs(defense.armour - expectedArmour) < 1e-9, `expected ~${expectedArmour}, got ${defense.armour}`);
 });

@@ -7,6 +7,7 @@
   --hp: #4caf6a;
   --hp-low: #e04f4f;
   --mana: #4f8fe0;
+  --barrier: #7fe0d8;
   --text: #ece6f7;
   --text-dim: #9c93b5;
   --tier-basic: #9c93b5;
@@ -251,13 +252,17 @@ button.secondary:active { transform: scale(0.97); }
 
 .stats-row {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
+  gap: 4px 0;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 10px;
   font-size: 0.78rem;
 }
+
+.stats-row .stat-chip { flex: 0 0 20%; }
 
 .stats-row .stat-chip { color: var(--text-dim); }
 .stats-row .stat-chip strong { color: var(--gold); font-weight: 600; }
@@ -487,6 +492,24 @@ button.secondary:active { transform: scale(0.97); }
   flex-direction: column;
   gap: 6px;
   pointer-events: none;
+}
+
+#barrier-bar-outer {
+  height: 8px;
+  border: 2px solid var(--border);
+  border-radius: 5px;
+  background: #241d38;
+  overflow: hidden;
+  display: none;
+}
+
+#barrier-bar-outer.active { display: block; }
+
+#barrier-bar-inner {
+  height: 100%;
+  width: 100%;
+  background: var(--barrier);
+  transition: width 0.15s linear;
 }
 
 #hp-bar-outer {

@@ -6,6 +6,7 @@ import { CombatScene } from '../src/combat.js';
 import { Enemy } from '../src/entities.js';
 import * as inv from '../src/inventory.js';
 import { getGemById, PUNCH_SKILL } from '../src/gems.js';
+import { evasionChance as computeEvasionChance } from '../src/defense.js';
 
 // A handful of tests below need a clean bag to reliably place larger/taller
 // shapes (e.g. a 1x4 staff) — earlier tests in this file leave it fragmented
@@ -17,7 +18,7 @@ function clearBag() {
 
 function makeScene(callbackOverrides = {}) {
   const scene = new CombatScene(makeFakeCanvas(), {
-    onHpChange() {}, onWaveChange() {}, onCurrencyChange() {}, onManaChange() {},
+    onHpChange() {}, onWaveChange() {}, onCurrencyChange() {}, onManaChange() {}, onBarrierChange() {},
     onDeath() {}, onMapComplete() {},
     ...callbackOverrides,
   });
@@ -71,19 +72,29 @@ test('currency drop rolls are deterministic given a fixed RNG sequence', () => {
 
 test('evasion roll blocks enemy contact damage exactly when the roll succeeds', () => {
   const scene = makeScene();
-  assert.equal(scene.character.evasionChance, 0.1); // base dexterity 5 * 0.02
+  // Whatever gear earlier tests in this file left equipped, evasionChance
+  // must match the shared diminishing-returns curve applied to the
+  // character's own evasion rating -- this test isn't about the exact value.
+  assert.equal(scene.character.evasionChance, computeEvasionChance(scene.character.evasion));
+  assert.ok(scene.character.evasionChance > 0 && scene.character.evasionChance < 0.9);
 
   const enemy = new Enemy(scene.character.x, scene.character.y, 1, 'husk');
   enemy.attackTimer = 0;
+  // Overwhelming damage so this hit is guaranteed to punch through any
+  // armour mitigation/Barrier that cumulative gear from earlier tests in
+  // this file left equipped -- this test is about the evasion roll gate,
+  // not the size of the hit.
+  enemy.damage = 999999;
   scene.enemies = [enemy];
 
   const hpBefore = scene.character.hp;
-  withFixedRandom([0.05], () => scene._update(0)); // 0.05 < 0.1 -> evaded
+  const evasionRoll = scene.character.evasionChance / 2;
+  withFixedRandom([evasionRoll], () => scene._update(0)); // below evasionChance -> evaded
   assert.equal(scene.character.hp, hpBefore);
   assert.ok(scene.evadeFlashTimer > 0);
 
   enemy.attackTimer = 0; // ready to attack again
-  withFixedRandom([0.5], () => scene._update(0)); // 0.5 >= 0.1 -> hits
+  withFixedRandom([0.999], () => scene._update(0)); // above any plausible evasionChance -> hits
   assert.ok(scene.character.hp < hpBefore);
 });
 

@@ -396,6 +396,47 @@ export function getTotalStats() {
   return stats;
 }
 
+// How much of each defence type a point of its "tied" attribute grants,
+// on top of whatever gear rolls -- Armour~Strength, Evasion~Dexterity,
+// Barrier~Intelligence, mirroring how those attributes already feed HP/mana.
+const ARMOUR_PER_STRENGTH = 2;
+const EVASION_PER_DEXTERITY = 2;
+const BARRIER_PER_INTELLIGENCE = 3;
+const DEFENSE_TYPES = ['armour', 'evasion', 'barrier'];
+
+// Local flat/% defensive prefixes only ever roll on armor-slot pieces (see
+// equipment.js), and scale that SAME piece's own defenseBase: (defenseBase +
+// Flat) * (1 + Pct). Jewelry's GlobalPct prefixes instead scale the whole
+// character's final total for that defence type, checked across every slot.
+export function getDefenseStats() {
+  const s = load();
+  const local = { armour: 0, evasion: 0, barrier: 0 };
+  const globalPct = { armour: 0, evasion: 0, barrier: 0 };
+
+  for (const slot of SLOTS) {
+    const item = s.equipped[slot];
+    if (!item) continue;
+    const base = getBaseItem(item.defId);
+    if (base.defenseBase) {
+      for (const key of DEFENSE_TYPES) {
+        const flat = base.defenseBase[key] + (item.affixes?.[`${key}Flat`] || 0);
+        const pctMul = 1 + (item.affixes?.[`${key}Pct`] || 0);
+        local[key] += flat * pctMul;
+      }
+    }
+    for (const key of DEFENSE_TYPES) {
+      globalPct[key] += item.affixes?.[`${key}GlobalPct`] || 0;
+    }
+  }
+
+  const stats = getTotalStats();
+  return {
+    armour: (local.armour + stats.strength * ARMOUR_PER_STRENGTH) * (1 + globalPct.armour),
+    evasion: (local.evasion + stats.dexterity * EVASION_PER_DEXTERITY) * (1 + globalPct.evasion),
+    barrierCapacity: (local.barrier + stats.intelligence * BARRIER_PER_INTELLIGENCE) * (1 + globalPct.barrier),
+  };
+}
+
 export function meetsRequirement(requirement) {
   if (!requirement) return true;
   return getTotalStats()[requirement.stat] >= requirement.value;

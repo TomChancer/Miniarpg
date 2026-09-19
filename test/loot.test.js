@@ -82,7 +82,7 @@ test("an item's affix count never exceeds its tier's total cap, and respects the
     for (const [stat, amount] of entries) {
       const candidates = base.statPool.filter((e) => e.stat === stat);
       assert.ok(candidates.length > 0, `${stat} isn't in chest's pool at all`);
-      const value = stat === 'attackSpeedPct' ? amount * 100 : amount;
+      const value = stat.endsWith('Pct') ? amount * 100 : amount;
       assert.ok(candidates.some((c) => value >= c.min && value <= c.max), `${stat}=${value} out of range`);
     }
   }
@@ -127,8 +127,11 @@ test('pickMissingType prefers whichever affix type the item has fewer of', () =>
 
 test('rollOneAffix never repeats a stat the item already has', () => {
   const base = getBaseItem('ring');
+  // Every ring prefix except dexterity is already "present" (including the
+  // three global defense scalers), so dexterity is the only option left.
+  const existing = { strength: 1, vitality: 1, intelligence: 1, armourGlobalPct: 0.05, evasionGlobalPct: 0.05, barrierGlobalPct: 0.05 };
   for (let i = 0; i < 50; i++) {
-    const rolled = rollOneAffix(base, 'prefix', { strength: 1, vitality: 1, intelligence: 1 });
+    const rolled = rollOneAffix(base, 'prefix', existing);
     assert.equal(rolled.stat, 'dexterity');
   }
 });

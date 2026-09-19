@@ -2,6 +2,7 @@ import '../testlib/env.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Character, Enemy, buildWave } from '../src/entities.js';
+import { armourMitigation, evasionChance, BARRIER_RECHARGE_DELAY_SEC } from '../src/defense.js';
 
 test('buildWave scales enemy count with wave number and packSizePct', () => {
   const base = buildWave(1);
@@ -46,16 +47,74 @@ test('Enemy value never rounds down to zero even at very low toughness', () => {
   assert.ok(e.value >= 1);
 });
 
-test('Character derives HP/mana/evasion from stats and applies keystone mods', () => {
+test('Character derives HP/mana from stats, and armour/evasion/barrier from the defense param', () => {
   const stats = { strength: 5, vitality: 10, intelligence: 8, dexterity: 40, rarity: 0 };
   const plain = new Character(0, 0, stats);
   assert.equal(plain.maxHp, 60 + 10 * 8); // 140
   assert.equal(plain.maxMana, 20 + 8 * 6); // 68
-  assert.equal(plain.evasionChance, 0.6); // capped, 40*0.02=0.8 would exceed cap
+  // No defense param supplied: everything defaults to zero, not the old
+  // dexterity-derived formula -- Evasion is now purely gear/defense-stat driven.
+  assert.equal(plain.armourMitigation, 0);
+  assert.equal(plain.evasionChance, 0);
+  assert.equal(plain.maxBarrier, 0);
+  assert.equal(plain.barrier, 0);
 
   const withKeystone = new Character(0, 0, stats, { damageMultiplier: 1.4, hpMultiplier: 0.7 });
   assert.equal(withKeystone.maxHp, 140 * 0.7);
   assert.equal(withKeystone.damageMultiplier('strength'), (1 + 5 * 0.05) * 1.4);
+
+  const defended = new Character(0, 0, stats, {}, { armour: 150, evasion: 60, barrierCapacity: 40 });
+  assert.equal(defended.armourMitigation, armourMitigation(150));
+  assert.equal(defended.evasionChance, evasionChance(60));
+  assert.equal(defended.maxBarrier, 40);
+  assert.equal(defended.barrier, 40); // starts full
+});
+
+test('Character.takeHit applies armour mitigation, then drains Barrier before HP, and resets its recharge delay', () => {
+  const stats = { strength: 5, vitality: 10, intelligence: 8, dexterity: 5, rarity: 0 };
+  const ch = new Character(0, 0, stats, {}, { armour: 100, evasion: 0, barrierCapacity: 20 });
+  const mitigation = armourMitigation(100);
+  assert.ok(mitigation > 0 && mitigation < 0.9);
+
+  // A hit smaller than the mitigated damage's overlap with Barrier: fully absorbed.
+  const hpBefore = ch.hp;
+  ch.takeHit(10);
+  const mitigatedFirst = 10 * (1 - mitigation);
+  assert.ok(mitigatedFirst <= 20, 'test assumes this hit fits inside the 20-capacity barrier');
+  assert.equal(ch.barrier, 20 - mitigatedFirst);
+  assert.equal(ch.hp, hpBefore); // fully absorbed, HP untouched
+  assert.equal(ch.barrierRechargeDelayTimer, BARRIER_RECHARGE_DELAY_SEC);
+
+  // A big hit that exhausts the remaining barrier and spills over into HP.
+  ch.takeHit(1000);
+  assert.equal(ch.barrier, 0);
+  assert.ok(ch.hp < hpBefore);
+});
+
+test('Character.regenBarrier only recharges once the delay has fully elapsed, and clamps to max', () => {
+  const stats = { strength: 5, vitality: 10, intelligence: 8, dexterity: 5, rarity: 0 };
+  const ch = new Character(0, 0, stats, {}, { armour: 0, evasion: 0, barrierCapacity: 50 });
+  ch.takeHit(1000); // drains barrier to 0 and sets the full recharge delay
+  assert.equal(ch.barrier, 0);
+  assert.equal(ch.barrierRechargeDelayTimer, BARRIER_RECHARGE_DELAY_SEC);
+
+  ch.regenBarrier(BARRIER_RECHARGE_DELAY_SEC - 0.5); // not through the delay yet
+  assert.equal(ch.barrier, 0);
+  assert.ok(ch.barrierRechargeDelayTimer > 0);
+
+  ch.regenBarrier(1); // finishes counting down the delay (that tick is spent on the delay itself)
+  assert.equal(ch.barrierRechargeDelayTimer, 0);
+  assert.equal(ch.barrier, 0);
+
+  ch.regenBarrier(0.1); // delay is clear now, so this tick actually regenerates
+  assert.ok(ch.barrier > 0);
+
+  ch.regenBarrier(1000); // large dt should clamp to max, not overshoot
+  assert.equal(ch.barrier, ch.maxBarrier);
+
+  // Taking damage again mid-recharge halts it by resetting the delay.
+  ch.takeHit(1);
+  assert.equal(ch.barrierRechargeDelayTimer, BARRIER_RECHARGE_DELAY_SEC);
 });
 
 test('Character.regenMana respects max and the regen multiplier', () => {

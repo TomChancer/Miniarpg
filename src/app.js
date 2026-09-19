@@ -16,6 +16,7 @@ import {
   unsocketGem,
   discardItem,
   getTotalStats,
+  getDefenseStats,
   meetsRequirement,
   canAddAffix,
   addRandomAffix,
@@ -27,6 +28,7 @@ import { GEMS, getGemById } from './gems.js';
 import { SUPPORT_GEMS } from './supports.js';
 import { SLOTS, getBaseItem } from './equipment.js';
 import { itemValue } from './loot.js';
+import { armourMitigation, evasionChance } from './defense.js';
 import { getAvailableNpcs } from './npcs.js';
 import { getStock, refreshStock, removeFromStock } from './merchant.js';
 import {
@@ -47,6 +49,13 @@ import { getTree } from './talentTrees.js';
 const STAT_LABELS = { strength: 'STR', vitality: 'VIT', intelligence: 'INT', dexterity: 'DEX', rarity: 'RAR' };
 const TIER_LABELS = { basic: 'Basic', uncommon: 'Uncommon', rare: 'Rare', unique: 'Unique' };
 const TAG_LABELS = { attack: 'Attack', melee: 'Melee', ranged: 'Ranged', projectile: 'Projectile', area: 'Area', dash: 'Dash' };
+// Display names for affixes that aren't one of the five main stats above.
+const AFFIX_LABELS = {
+  attackSpeedPct: 'Attack Speed',
+  armourFlat: 'Armour', armourPct: 'Armour', armourGlobalPct: 'Total Armour',
+  evasionFlat: 'Evasion', evasionPct: 'Evasion', evasionGlobalPct: 'Total Evasion',
+  barrierFlat: 'Barrier', barrierPct: 'Barrier', barrierGlobalPct: 'Total Barrier',
+};
 
 function requirementText(requirement) {
   if (!requirement) return 'No requirement';
@@ -64,9 +73,10 @@ function currencyCost(def) {
 function affixesText(affixes) {
   if (!affixes || Object.keys(affixes).length === 0) return 'No affixes';
   return Object.entries(affixes)
-    .map(([stat, amount]) =>
-      stat === 'attackSpeedPct' ? `+${Math.round(amount * 100)}% Attack Speed` : `+${amount} ${STAT_LABELS[stat]}`
-    )
+    .map(([stat, amount]) => {
+      const label = AFFIX_LABELS[stat] || STAT_LABELS[stat] || stat;
+      return stat.endsWith('Pct') ? `+${Math.round(amount * 100)}% ${label}` : `+${amount} ${label}`;
+    })
     .join(', ');
 }
 
@@ -89,6 +99,8 @@ function showScreen(name) {
 const canvas = document.getElementById('combat-canvas');
 const hpBarInner = document.getElementById('hp-bar-inner');
 const manaBarInner = document.getElementById('mana-bar-inner');
+const barrierBarOuter = document.getElementById('barrier-bar-outer');
+const barrierBarInner = document.getElementById('barrier-bar-inner');
 const hpLabel = document.getElementById('hp-label');
 const waveLabel = document.getElementById('wave-label');
 const shardsLabel = document.getElementById('shards-label');
@@ -364,9 +376,16 @@ function refreshInventoryScreen() {
 
 function renderStats() {
   const stats = getTotalStats();
-  statsRowEl.innerHTML = Object.entries(STAT_LABELS)
+  const defense = getDefenseStats();
+  const attributeChips = Object.entries(STAT_LABELS)
     .map(([key, label]) => `<span class="stat-chip">${label} <strong>${stats[key]}</strong></span>`)
     .join('');
+  const defenseChips = `
+    <span class="stat-chip">ARM <strong>${Math.round(armourMitigation(defense.armour) * 100)}%</strong></span>
+    <span class="stat-chip">EVA <strong>${Math.round(evasionChance(defense.evasion) * 100)}%</strong></span>
+    <span class="stat-chip">BAR <strong>${Math.round(defense.barrierCapacity)}</strong></span>
+  `;
+  statsRowEl.innerHTML = attributeChips + defenseChips;
 }
 
 function renderPaperdoll() {
@@ -869,6 +888,11 @@ function startCombat() {
     onManaChange(mana, maxMana) {
       const pct = Math.max(0, (mana / maxMana) * 100);
       manaBarInner.style.width = `${pct}%`;
+    },
+    onBarrierChange(barrier, maxBarrier) {
+      barrierBarOuter.classList.toggle('active', maxBarrier > 0);
+      const pct = maxBarrier > 0 ? Math.max(0, (barrier / maxBarrier) * 100) : 0;
+      barrierBarInner.style.width = `${pct}%`;
     },
     onWaveChange(wave) {
       waveLabel.textContent = wave === 'Boss' ? 'Boss Round' : `Round ${wave}/${scene.mapDef.rounds}`;
