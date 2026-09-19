@@ -298,3 +298,23 @@ test('inventory: getDefenseStats combines local armor-piece scaling, jewelry glo
   const defense = inv.getDefenseStats();
   assert.ok(Math.abs(defense.armour - expectedArmour) < 1e-9, `expected ~${expectedArmour}, got ${defense.armour}`);
 });
+
+test('inventory: useMapSigil spends one Warped Sigil and rolls pending map modifiers; failure spends nothing', () => {
+  assert.deepEqual(inv.getPendingMapModifiers(), []);
+  assert.equal(inv.useMapSigil(), false); // none owned yet
+  assert.equal(inv.getBalance('warpedSigil'), 0);
+
+  inv.addCurrency('warpedSigil', 2);
+  const rolled = inv.useMapSigil();
+  assert.equal(inv.getBalance('warpedSigil'), 1);
+  assert.equal(rolled.length, 3);
+  assert.deepEqual(inv.getPendingMapModifiers(), rolled);
+
+  // Using a second one re-rolls (overwrites) rather than stacking.
+  const rolledAgain = inv.useMapSigil();
+  assert.equal(inv.getBalance('warpedSigil'), 0);
+  assert.deepEqual(inv.getPendingMapModifiers(), rolledAgain);
+
+  inv.clearPendingMapModifiers();
+  assert.deepEqual(inv.getPendingMapModifiers(), []);
+});

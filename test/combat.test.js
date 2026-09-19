@@ -7,6 +7,7 @@ import { Enemy } from '../src/entities.js';
 import * as inv from '../src/inventory.js';
 import { getGemById, PUNCH_SKILL } from '../src/gems.js';
 import { evasionChance as computeEvasionChance } from '../src/defense.js';
+import { combineModifierEffects } from '../src/mapModifiers.js';
 
 // A handful of tests below need a clean bag to reliably place larger/taller
 // shapes (e.g. a 1x4 staff) — earlier tests in this file leave it fragmented
@@ -16,13 +17,13 @@ function clearBag() {
   for (const it of [...inv.getGeneralGrid().items]) inv.discardItem('general', it.instanceId);
 }
 
-function makeScene(callbackOverrides = {}) {
+function makeScene(callbackOverrides = {}, mapId = undefined) {
   const scene = new CombatScene(makeFakeCanvas(), {
     onHpChange() {}, onWaveChange() {}, onCurrencyChange() {}, onManaChange() {}, onBarrierChange() {},
     onDeath() {}, onMapComplete() {},
     ...callbackOverrides,
   });
-  scene.start();
+  scene.start(mapId);
   scene.stop(); // cancel the internal rAF loop; tests drive _update manually
   return scene;
 }
@@ -58,15 +59,16 @@ test('currency drop rolls are deterministic given a fixed RNG sequence', () => {
   const scene = makeScene();
   assert.equal(scene.character.rarity, 0); // base stats, nothing allocated
 
-  // Order matches Object.values(CURRENCIES): cinderShard, cinderFragment, voidShard, voidFragment
-  // thresholds:                              0.1          0.05            0.05        0.0025
-  withFixedRandom([0.05, 0.05, 0.5, 0.001], () => scene._rollDrops(1));
+  // Order matches Object.values(CURRENCIES): cinderShard, cinderFragment, voidShard, voidFragment, warpedSigil
+  // thresholds:                              0.1          0.05            0.05        0.0025        0.02
+  withFixedRandom([0.05, 0.05, 0.5, 0.001, 0.5], () => scene._rollDrops(1));
 
   assert.deepEqual(scene.currencyEarned, {
     cinderShard: 1, // 0.05 < 0.1
     cinderFragment: 0, // 0.05 is not < 0.05
     voidShard: 0, // 0.5 not < 0.05
     voidFragment: 1, // 0.001 < 0.0025
+    warpedSigil: 0, // 0.5 not < 0.02
   });
 });
 
@@ -306,4 +308,91 @@ test('clearing all rounds and the boss fires onMapComplete exactly once', () => 
   // a further _update after completion must not fire onMapComplete again
   scene._update(1 / 60);
   assert.equal(completeCount, 1);
+});
+
+test('a higher-tier map folds its toughness base % into mapMods.monsterToughnessPct', () => {
+  const tier1 = makeScene({}, 'ashen_grove');
+  const tier3 = makeScene({}, 'cinder_wastes');
+  assert.equal(tier1.mapMods.monsterToughnessPct, 0);
+  assert.equal(tier3.mapMods.monsterToughnessPct, 25); // tier 3's toughness base
+});
+
+test('a used Warped Sigil\'s rolled modifiers apply to the next scene and are consumed exactly once', () => {
+  inv.addCurrency('warpedSigil', 1);
+  const rolled = inv.useMapSigil();
+  assert.equal(rolled.length, 3);
+  assert.notDeepEqual(inv.getPendingMapModifiers(), []);
+
+  const scene = makeScene();
+  assert.deepEqual(scene.activeMapModifiers, rolled);
+  assert.deepEqual(inv.getPendingMapModifiers(), []); // consumed by starting the run
+
+  // A second scene (no sigil pending) gets none.
+  const scene2 = makeScene();
+  assert.deepEqual(scene2.activeMapModifiers, []);
+});
+
+test("a sigil's rarityBonus raises character.rarity by exactly that amount for the run", () => {
+  const baseline = makeScene();
+  const baselineRarity = baseline.character.rarity;
+
+  inv.addCurrency('warpedSigil', 1);
+  const rolled = inv.useMapSigil();
+  const effects = combineModifierEffects(rolled);
+  const scene = makeScene();
+
+  assert.ok(Math.abs(scene.character.rarity - (baselineRarity + effects.rarityBonus)) < 1e-6);
+});
+
+test("the Weakening map modifier's reducedDefensesPct shrinks armour/evasion/barrier by exactly that %", () => {
+  // Equip a real armour piece so there's a non-zero baseline to shrink.
+  clearBag();
+  inv.addLootItem({ kind: 'equipment', defId: 'chest_armour', tier: 'rare', w: 2, h: 3, sockets: [null], affixes: { armourFlat: 10 } });
+  const chest = inv.getGeneralGrid().items.find((i) => i.defId === 'chest_armour');
+  inv.equipItem(chest.instanceId);
+  const baselineArmour = inv.getDefenseStats().armour;
+  assert.ok(baselineArmour > 0);
+
+  // Force-roll until Weakening comes up (~50% per roll with a 6-item pool
+  // and 3 picks) -- a generous retry cap keeps this from ever being flaky.
+  let effects;
+  for (let i = 0; i < 100; i++) {
+    inv.addCurrency('warpedSigil', 1);
+    const rolled = inv.useMapSigil();
+    if (rolled.some((m) => m.id === 'weakening')) {
+      effects = combineModifierEffects(rolled);
+      break;
+    }
+  }
+  assert.ok(effects, 'never rolled Weakening in 100 tries');
+  assert.ok(effects.reducedDefensesPct > 0);
+
+  const scene = makeScene();
+  const expectedArmour = baselineArmour * (1 - effects.reducedDefensesPct / 100);
+  assert.ok(Math.abs(scene.character.armour - expectedArmour) < 1e-6);
+});
+
+test('the Volatile map modifier bursts a slain enemy, damaging the player through the normal defence pipeline', () => {
+  const scene = makeScene();
+  scene.volatileDeaths = true;
+  const enemy = new Enemy(scene.character.x + 10, scene.character.y, 1, 'husk');
+  enemy.hp = 1;
+  // Overwhelming damage so the burst is guaranteed to punch through any
+  // armour mitigation/Barrier that cumulative gear from earlier tests in
+  // this file left equipped -- this test is about the burst triggering at
+  // all, not the size of the hit.
+  enemy.damage = 999999;
+  const hpBefore = scene.character.hp;
+  withFixedRandom([0.99], () => scene._damageEnemy(enemy, 1)); // roll above any plausible evasionChance -> hits
+  assert.ok(scene.character.hp < hpBefore, 'a close-range volatile death should have damaged the player');
+});
+
+test('the Volatile map modifier does not damage the player if they are out of burst range', () => {
+  const scene = makeScene();
+  scene.volatileDeaths = true;
+  const enemy = new Enemy(scene.character.x + 5000, scene.character.y, 1, 'husk');
+  enemy.hp = 1;
+  const hpBefore = scene.character.hp;
+  scene._damageEnemy(enemy, 1);
+  assert.equal(scene.character.hp, hpBefore);
 });

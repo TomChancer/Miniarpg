@@ -23,6 +23,8 @@ import {
   upgradeTierWithFragment,
   upgradeTierWithShard,
   sellItem,
+  useMapSigil,
+  getPendingMapModifiers,
 } from './inventory.js';
 import { GEMS, getGemById } from './gems.js';
 import { SUPPORT_GEMS } from './supports.js';
@@ -31,6 +33,8 @@ import { itemValue, itemDefenseBreakdown } from './loot.js';
 import { armourMitigation, evasionChance } from './defense.js';
 import { getAvailableNpcs } from './npcs.js';
 import { getStock, refreshStock, removeFromStock } from './merchant.js';
+import { MAPS, MAP_IDS, ROOT_MAP_ID, getMapDef, getMapToughnessBasePct } from './maps.js';
+import { isUnlocked, isCleared, markCleared } from './mapProgress.js';
 import {
   getLevel,
   getXp,
@@ -158,6 +162,9 @@ const resultXpEl = document.getElementById('result-xp');
 const victoryXpEl = document.getElementById('victory-xp');
 const victoryEarnedEl = document.getElementById('victory-earned');
 const victoryItemsEl = document.getElementById('victory-items');
+const mapSigilBarEl = document.getElementById('map-sigil-bar');
+const mapPendingModsEl = document.getElementById('map-pending-mods');
+const mapTreeListEl = document.getElementById('map-tree-list');
 
 let scene = null;
 let currentModalItem = null;
@@ -909,9 +916,64 @@ document.getElementById('town-talents').addEventListener('click', () => {
 });
 document.getElementById('talents-back').addEventListener('click', () => showScreen('town'));
 
+// --- map screen ---
+
+function renderMapScreen() {
+  renderMapSigilBar();
+  renderMapPendingMods();
+  renderMapTreeList();
+}
+
+function renderMapSigilBar() {
+  const balance = getBalance('warpedSigil');
+  const sigil = CURRENCIES.warpedSigil;
+  mapSigilBarEl.innerHTML = `
+    <span class="currency-chip">
+      <span class="chip-dot" style="background:${sigil.color}"></span>
+      <strong>${balance}</strong> ${sigil.name}
+    </span>
+    <button class="gem-action" id="map-use-sigil" ${balance > 0 ? '' : 'disabled'}>Use Sigil</button>
+  `;
+  document.getElementById('map-use-sigil').addEventListener('click', () => {
+    if (useMapSigil()) renderMapScreen();
+  });
+}
+
+function renderMapPendingMods() {
+  const mods = getPendingMapModifiers();
+  mapPendingModsEl.innerHTML = mods
+    .map((mod) => `<span class="mod-chip ${mod.kind}">${mod.description}</span>`)
+    .join('');
+}
+
+function renderMapTreeList() {
+  mapTreeListEl.innerHTML = '';
+  MAP_IDS.forEach((mapId, idx) => {
+    if (idx > 0) {
+      const connector = document.createElement('div');
+      connector.className = `map-tree-connector${isUnlocked(mapId) ? ' unlocked' : ''}`;
+      mapTreeListEl.appendChild(connector);
+    }
+    const def = getMapDef(mapId);
+    const unlocked = isUnlocked(mapId);
+    const cleared = isCleared(mapId);
+    const toughnessPct = getMapToughnessBasePct(mapId);
+    const card = document.createElement('div');
+    card.className = `map-tree-card${cleared ? ' cleared' : ''}${unlocked ? ' unlocked' : ' locked'}`;
+    const subLine = !unlocked ? 'Locked' : toughnessPct > 0 ? `+${toughnessPct}% difficulty` : 'Base difficulty';
+    card.innerHTML = `
+      <div class="tier-label">Tier ${def.tier}</div>
+      <div class="biome-name">${def.name}</div>
+      <div class="biome-sub">${subLine}</div>
+    `;
+    if (unlocked) card.addEventListener('click', () => startCombat(mapId));
+    mapTreeListEl.appendChild(card);
+  });
+}
+
 // --- combat ---
 
-function startCombat() {
+function startCombat(mapId) {
   showScreen('combat');
   scene = new CombatScene(canvas, {
     onHpChange(hp, maxHp) {
@@ -952,6 +1014,7 @@ function startCombat() {
     },
     onMapComplete(currencyEarned, xpEarned, itemsEarned) {
       scene.stop();
+      markCleared(scene.mapDef.id);
       bankCurrencyEarnings(currencyEarned);
       const banked = bankItemDrops(itemsEarned);
       addXp(xpEarned);
@@ -964,19 +1027,21 @@ function startCombat() {
       showScreen('victory');
     },
   });
-  scene.start();
+  scene.start(mapId);
 }
 
 // --- navigation wiring ---
 
-document.getElementById('town-set-out').addEventListener('click', () => showScreen('map'));
+document.getElementById('town-set-out').addEventListener('click', () => {
+  renderMapScreen();
+  showScreen('map');
+});
 document.getElementById('town-inventory').addEventListener('click', () => {
   refreshInventoryScreen();
   showScreen('inventory');
 });
 document.getElementById('inventory-back').addEventListener('click', () => showScreen('town'));
 document.getElementById('map-back').addEventListener('click', () => showScreen('town'));
-document.getElementById('map-node').addEventListener('click', startCombat);
 document.getElementById('shop-close').addEventListener('click', closeShop);
 document.getElementById('item-modal-close').addEventListener('click', closeItemModal);
 

@@ -2,10 +2,12 @@ import { Character, Enemy, Projectile, buildWave } from './entities.js';
 import { PUNCH_SKILL, getGemById } from './gems.js';
 import {
   getSocketedGemGroups, getSpeedMultiplier, getTotalStats, getDefenseStats, meetsRequirement, getWeaponMods, CURRENCIES,
+  getPendingMapModifiers, clearPendingMapModifiers,
 } from './inventory.js';
 import { resolveSkill, supportsFor } from './skillResolution.js';
 import { getPlayerKeystoneMods, getMapModifiers } from './progression.js';
-import { getMapDef } from './maps.js';
+import { getMapDef, getMapToughnessBasePct } from './maps.js';
+import { combineModifierEffects } from './mapModifiers.js';
 import { BASE_ITEM_IDS } from './equipment.js';
 import { generateLootItem } from './loot.js';
 
@@ -33,10 +35,34 @@ export class CombatScene {
     this._resize();
 
     this.mapDef = getMapDef(mapId);
-    this.mapMods = getMapModifiers();
 
-    const stats = getTotalStats();
+    // A Warped Sigil's rolled modifiers apply to this one run and are
+    // consumed the instant it starts, win or lose.
+    this.activeMapModifiers = getPendingMapModifiers();
+    clearPendingMapModifiers();
+    const modEffects = combineModifierEffects(this.activeMapModifiers);
+    this.volatileDeaths = modEffects.volatileDeaths;
+
+    const treeMapMods = getMapModifiers();
+    this.mapMods = {
+      ...treeMapMods,
+      packSizePct: treeMapMods.packSizePct + modEffects.packSizePct,
+      spawnRatePct: treeMapMods.spawnRatePct + modEffects.spawnRatePct,
+      // Map tier difficulty and a sigil's own "tougher enemies" drawback
+      // both fold into the same toughness knob the mapping tree already
+      // uses (see entities.js's Enemy) -- hp/damage/value/xp all scale together.
+      monsterToughnessPct: treeMapMods.monsterToughnessPct + modEffects.monsterToughnessPct + getMapToughnessBasePct(mapId),
+    };
+
+    const baseStats = getTotalStats();
+    const stats = { ...baseStats, rarity: baseStats.rarity + modEffects.rarityBonus };
     const defenseStats = getDefenseStats();
+    const defenseShrink = 1 - modEffects.reducedDefensesPct / 100;
+    if (defenseShrink < 1) {
+      defenseStats.armour *= defenseShrink;
+      defenseStats.evasion *= defenseShrink;
+      defenseStats.barrierCapacity *= defenseShrink;
+    }
     const keystoneMods = getPlayerKeystoneMods();
     const weaponMods = getWeaponMods();
     this.weaponRangeMultiplier = weaponMods.rangeMultiplier;
@@ -326,8 +352,27 @@ export class CombatScene {
       this._rollDrops(enemy.value);
       this._rollGearDrop(enemy);
       this.xpEarned += enemy.xpValue * (1 + this.mapMods.xpPct / 100);
+      if (this.volatileDeaths) this._volatileBurst(enemy);
       enemy.value = 0; // guard against double-counting a kill within the same frame
     }
+  }
+
+  // The Volatile map modifier's drawback: a slain enemy bursts, hitting the
+  // player if they're standing close enough. Goes through the normal
+  // evasion/armour/Barrier pipeline like any other hit, just triggered by a
+  // kill instead of an enemy's own attack.
+  _volatileBurst(enemy) {
+    const ch = this.character;
+    const burstRadius = enemy.radius + 70;
+    const dist = Math.hypot(enemy.x - ch.x, enemy.y - ch.y);
+    if (dist > burstRadius) return;
+    if (Math.random() < ch.evasionChance) {
+      this.evadeFlashTimer = EVADE_FLASH_DURATION;
+      return;
+    }
+    ch.takeHit(enemy.damage * 1.5);
+    this.callbacks.onHpChange(ch.hp, ch.maxHp);
+    this.callbacks.onBarrierChange(ch.barrier, ch.maxBarrier);
   }
 
   _rollGearDrop(enemy) {

@@ -3,17 +3,23 @@ import { SLOTS, SLOT_CATEGORY, getBaseItem } from './equipment.js';
 import { getGemById } from './gems.js';
 import { getPlayerStatBonuses, getMapStatBonuses, getPlayerDefenseBonuses } from './progression.js';
 import { pickAffixType, pickMissingType, rollOneAffix, itemValue } from './loot.js';
+import { rollMapModifiers } from './mapModifiers.js';
 
 // Cinder currency buys gear; Void currency buys skill gems. Shards are the
 // common/base tier of each family, Fragments the rare tier — dropChance is
 // the base per-roll chance before the character's Rarity stat scales it up
 // (see combat.js). stackCap is how many sit in one inventory grid stack.
+// Warped Sigils are a third, single-tier family: used (not spent on
+// anything else) to roll a fresh set of map modifiers for the next run.
 export const CURRENCIES = {
   cinderShard: { id: 'cinderShard', name: 'Cinder Shard', stackCap: 20, dropChance: 0.1, color: '#d8b054' },
   cinderFragment: { id: 'cinderFragment', name: 'Cinder Fragment', stackCap: 20, dropChance: 0.05, color: '#e0824f' },
   voidShard: { id: 'voidShard', name: 'Void Shard', stackCap: 20, dropChance: 0.05, color: '#7a6fe0' },
   voidFragment: { id: 'voidFragment', name: 'Void Fragment', stackCap: 20, dropChance: 0.0025, color: '#c14fe0' },
+  warpedSigil: { id: 'warpedSigil', name: 'Warped Sigil', stackCap: 10, dropChance: 0.02, color: '#e0455f' },
 };
+
+const MAP_MODIFIERS_PER_SIGIL = 3;
 
 export const BASE_STATS = { strength: 5, vitality: 5, intelligence: 5, dexterity: 5, rarity: 0 };
 
@@ -33,6 +39,7 @@ function defaultState() {
     general: [], // { instanceId, kind: 'currency'|'equipment', defId, x, y, w, h, quantity?, sockets?, affixes? }
     gems: [], // { instanceId, defId, x, y, w:1, h:1 }
     equipped: Object.fromEntries(SLOTS.map((s) => [s, null])),
+    pendingMapModifiers: [], // rolled by a used Warped Sigil, consumed by the next map entered
   };
 }
 
@@ -147,6 +154,29 @@ export function spendCurrency(currencyId, amount) {
   s.general = s.general.filter((it) => !(it.kind === 'currency' && it.defId === currencyId && it.quantity <= 0));
   save();
   return true;
+}
+
+// --- map modifiers (Warped Sigils) ---
+
+export function getPendingMapModifiers() {
+  return load().pendingMapModifiers || [];
+}
+
+// Rolls a fresh set of map modifiers and stashes them for the NEXT map
+// entered (see combat.js's start()); spends a Warped Sigil to do it,
+// overwriting whatever was previously pending.
+export function useMapSigil() {
+  if (!spendCurrency('warpedSigil', 1)) return false;
+  const s = load();
+  s.pendingMapModifiers = rollMapModifiers(MAP_MODIFIERS_PER_SIGIL);
+  save();
+  return s.pendingMapModifiers;
+}
+
+export function clearPendingMapModifiers() {
+  const s = load();
+  s.pendingMapModifiers = [];
+  save();
 }
 
 // --- gems ---
