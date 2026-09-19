@@ -1,13 +1,17 @@
 import { getTree, getNode } from './talentTrees.js';
 
-// Bumped because the mapping tree's Vitality spoke was replaced with Monster
-// Toughness — old saves would otherwise keep pointing at node ids that no
-// longer exist.
-const STATE_KEY = 'miniarpg.progression.v2';
+// Bumped: the player tree's STR/INT spokes now fork into keystone choices,
+// and DEX gained a keystone of its own — old saves' allocated node ids
+// (e.g. the old single 'str_keystone') no longer exist.
+const STATE_KEY = 'miniarpg.progression.v3';
 
 const STAT_KEYS = ['strength', 'vitality', 'intelligence', 'dexterity', 'rarity'];
 const PLAYER_MULTIPLIER_KEYS = ['damageMultiplier', 'hpMultiplier', 'manaMultiplier', 'manaRegenMultiplier', 'speedMultiplierBonus'];
 const MAP_MOD_KEYS = ['packSizePct', 'xpPct', 'spawnRatePct', 'enemyDamagePct', 'monsterToughnessPct'];
+// The player tree's defence branches grant these as fractions (0.15 = 15%),
+// matching gear's own GlobalPct affix convention -- see inventory.js
+// getDefenseStats, which sums this straight in alongside jewelry's own.
+const DEFENSE_MOD_KEYS = ['armourGlobalPct', 'evasionGlobalPct', 'barrierGlobalPct'];
 
 function defaultState() {
   return {
@@ -112,27 +116,40 @@ export function resetTree(treeId) {
   save();
 }
 
+// speedMultiplierBonus is additive (it's already an additive term where it's
+// consumed — see combat.js); the other three keystone multipliers stack
+// multiplicatively, since the player tree can now grant more than one
+// keystone at once (e.g. a STR-fork keystone alongside DEX's Phase Skin).
+function applyPlayerMod(playerMods, key, value) {
+  if (key === 'speedMultiplierBonus') playerMods[key] = (playerMods[key] || 0) + value;
+  else playerMods[key] = (playerMods[key] ?? 1) * value;
+}
+
 function collectNodeMods(treeId) {
   const tree = getTree(treeId);
   const stats = {};
   const mapMods = {};
   const playerMods = {};
+  const defenseMods = {};
   for (const nodeId of getAllocatedNodes(treeId)) {
     const node = tree.nodes[nodeId];
     if (!node || nodeId === 'start') continue;
     if (node.keystone) {
       for (const [key, value] of Object.entries(node.mods)) {
         if (STAT_KEYS.includes(key)) stats[key] = (stats[key] || 0) + value;
-        else if (PLAYER_MULTIPLIER_KEYS.includes(key)) playerMods[key] = value;
+        else if (PLAYER_MULTIPLIER_KEYS.includes(key)) applyPlayerMod(playerMods, key, value);
+        else if (DEFENSE_MOD_KEYS.includes(key)) defenseMods[key] = (defenseMods[key] || 0) + value;
         else if (MAP_MOD_KEYS.includes(key)) mapMods[key] = (mapMods[key] || 0) + value;
       }
     } else if (node.stat) {
       stats[node.stat] = (stats[node.stat] || 0) + node.amount;
+    } else if (DEFENSE_MOD_KEYS.includes(node.mod)) {
+      defenseMods[node.mod] = (defenseMods[node.mod] || 0) + node.amount;
     } else if (node.mod) {
       mapMods[node.mod] = (mapMods[node.mod] || 0) + node.amount;
     }
   }
-  return { stats, mapMods, playerMods };
+  return { stats, mapMods, playerMods, defenseMods };
 }
 
 export function getPlayerStatBonuses() {
@@ -141,6 +158,18 @@ export function getPlayerStatBonuses() {
 
 export function getMapStatBonuses() {
   return collectNodeMods('mapping').stats;
+}
+
+// The player tree's defence-branch nodes/keystones, as fractions -- summed
+// directly into inventory.js getDefenseStats alongside jewelry's own
+// GlobalPct affixes.
+export function getPlayerDefenseBonuses() {
+  const mods = collectNodeMods('player').defenseMods;
+  return {
+    armourGlobalPct: mods.armourGlobalPct || 0,
+    evasionGlobalPct: mods.evasionGlobalPct || 0,
+    barrierGlobalPct: mods.barrierGlobalPct || 0,
+  };
 }
 
 export function getPlayerKeystoneMods() {

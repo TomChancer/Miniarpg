@@ -1,7 +1,7 @@
 import { findFreeSpot } from './grid.js';
 import { SLOTS, SLOT_CATEGORY, getBaseItem } from './equipment.js';
 import { getGemById } from './gems.js';
-import { getPlayerStatBonuses, getMapStatBonuses } from './progression.js';
+import { getPlayerStatBonuses, getMapStatBonuses, getPlayerDefenseBonuses } from './progression.js';
 import { pickAffixType, pickMissingType, rollOneAffix, itemValue } from './loot.js';
 
 // Cinder currency buys gear; Void currency buys skill gems. Shards are the
@@ -408,8 +408,9 @@ const DEFENSE_TYPES = ['armour', 'evasion', 'barrier'];
 
 // Local flat/% defensive prefixes only ever roll on armor-slot pieces (see
 // equipment.js), and scale that SAME piece's own defenseBase: (defenseBase +
-// Flat) * (1 + Pct). Jewelry's GlobalPct prefixes instead scale the whole
-// character's final total for that defence type, checked across every slot.
+// Flat) * (1 + Pct). Jewelry's GlobalPct prefixes AND the player talent
+// tree's defence-branch nodes/keystones (see progression.js) both scale the
+// whole character's final total for that defence type instead.
 export function getDefenseStats() {
   const s = load();
   const local = { armour: 0, evasion: 0, barrier: 0 };
@@ -432,6 +433,11 @@ export function getDefenseStats() {
     for (const key of DEFENSE_TYPES) {
       globalPct[key] += item.affixes?.[`${key}GlobalPct`] || 0;
     }
+  }
+
+  const playerDefenseBonuses = getPlayerDefenseBonuses();
+  for (const key of DEFENSE_TYPES) {
+    globalPct[key] += playerDefenseBonuses[`${key}GlobalPct`] || 0;
   }
 
   const stats = getTotalStats();

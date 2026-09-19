@@ -2,47 +2,60 @@
 // center, with spokes of small nodes radiating outward. A node can only be
 // allocated once something it's connected to is already allocated (chained
 // back to 'start'). Regular nodes grant a flat `stat` bonus (folded into
-// inventory.js getTotalStats) or a percentage `mod` (a map-run modifier
-// consumed directly by combat.js). One node per tree is a keystone: a much
-// bigger, build-defining effect with a real drawback, gated behind its
-// whole spoke.
+// inventory.js getTotalStats) or a percentage `mod` (a map-run modifier, or
+// — for the player tree's new defence branches — a global armour/evasion/
+// barrier % consumed by inventory.js getDefenseStats). A spoke's trunk can
+// end in either a single keystone, or FORK into two divergent paths that
+// each end in their own keystone — a real build choice, not just more
+// points spent in the same direction.
 //
-// Layout is generated rather than hand-placed so every spoke stays evenly
-// spaced and consistent.
+// Layout is generated rather than hand-placed so every spoke/fork stays
+// evenly spaced and consistent.
 
 const RADIUS_STEP = 70;
 const RADIUS_START = 90;
-const KEYSTONE_RADIUS = 370;
 
-function buildSpoke(treeNodes, spokeId, angleDeg, steps, keystone) {
-  const rad = (angleDeg * Math.PI) / 180;
-  let prevId = 'start';
+function placeNode(treeNodes, id, angleRad, radius, prevId, extra) {
+  treeNodes[id] = {
+    id,
+    x: Math.round(Math.cos(angleRad) * radius),
+    y: Math.round(Math.sin(angleRad) * radius),
+    cost: extra.keystone ? 2 : 1,
+    connections: [prevId],
+    ...extra,
+  };
+  treeNodes[prevId].connections.push(id);
+  return id;
+}
+
+// Builds one straight chain of nodes at a fixed angle, starting at `radius`
+// and stepping outward by RADIUS_STEP per node. Returns the last node's id
+// and the radius the NEXT node in the chain would land on (so a fork can
+// carry on from exactly where the trunk left off).
+function buildChain(treeNodes, idPrefix, angleRad, radius, prevId, steps) {
   for (let i = 0; i < steps.length; i++) {
-    const id = `${spokeId}${i + 1}`;
-    const radius = RADIUS_START + i * RADIUS_STEP;
-    treeNodes[id] = {
-      id,
-      x: Math.round(Math.cos(rad) * radius),
-      y: Math.round(Math.sin(rad) * radius),
-      cost: 1,
-      connections: [prevId],
-      ...steps[i],
-    };
-    treeNodes[prevId].connections.push(id);
+    const id = `${idPrefix}${i + 1}`;
+    placeNode(treeNodes, id, angleRad, radius, prevId, steps[i]);
     prevId = id;
+    radius += RADIUS_STEP;
   }
-  if (keystone) {
-    const id = `${spokeId}_keystone`;
-    treeNodes[id] = {
-      id,
-      x: Math.round(Math.cos(rad) * KEYSTONE_RADIUS),
-      y: Math.round(Math.sin(rad) * KEYSTONE_RADIUS),
-      cost: 2,
-      keystone: true,
-      connections: [prevId],
-      ...keystone,
-    };
-    treeNodes[prevId].connections.push(id);
+  return { lastId: prevId, nextRadius: radius };
+}
+
+function buildSpoke(treeNodes, spoke) {
+  const angleRad = (spoke.angle * Math.PI) / 180;
+  const { lastId, nextRadius } = buildChain(treeNodes, spoke.id, angleRad, RADIUS_START, 'start', spoke.steps);
+
+  if (spoke.keystone) {
+    placeNode(treeNodes, `${spoke.id}_keystone`, angleRad, nextRadius, lastId, { ...spoke.keystone, keystone: true });
+  } else if (spoke.fork) {
+    for (const branch of spoke.fork.branches) {
+      const branchAngleRad = ((spoke.angle + branch.angleOffset) * Math.PI) / 180;
+      const { lastId: branchLastId, nextRadius: branchNextRadius } = buildChain(
+        treeNodes, `${spoke.id}_${branch.id}`, branchAngleRad, nextRadius, lastId, branch.steps
+      );
+      placeNode(treeNodes, `${spoke.id}_${branch.id}_keystone`, branchAngleRad, branchNextRadius, branchLastId, { ...branch.keystone, keystone: true });
+    }
   }
 }
 
@@ -62,23 +75,82 @@ function modSteps(mod, label, amount, count) {
   }));
 }
 
+// Same idea as modSteps, but for the three defence globals (armourGlobalPct
+// etc.), which — like their gear-affix counterparts — are stored as
+// fractions (0.15 = 15%) rather than whole percents, so they sum directly
+// with jewelry's own global % prefixes in inventory.js getDefenseStats.
+function defenseModSteps(defenseKey, label, percentEach, count) {
+  return Array.from({ length: count }, () => ({
+    name: `+${percentEach}% Total ${label}`,
+    mod: defenseKey,
+    amount: percentEach / 100,
+  }));
+}
+
 function makeTree(spokes) {
   const nodes = { start: { id: 'start', x: 0, y: 0, cost: 0, connections: [] } };
   for (const spoke of spokes) {
-    buildSpoke(nodes, spoke.id, spoke.angle, spoke.steps, spoke.keystone);
+    buildSpoke(nodes, spoke);
   }
   return { start: 'start', nodes };
 }
 
 export const PLAYER_TREE = makeTree([
-  { id: 'str', angle: -90, steps: statSteps('strength', 2, 4), keystone: {
-    name: "Berserker's Heart",
-    description: '+40% damage dealt, -30% max HP',
-    mods: { damageMultiplier: 1.4, hpMultiplier: 0.7 },
-  } },
+  {
+    id: 'str', angle: -90, steps: statSteps('strength', 2, 3),
+    fork: {
+      branches: [
+        {
+          id: 'berserker', angleOffset: -22, steps: statSteps('strength', 2, 1),
+          keystone: {
+            name: "Berserker's Heart",
+            description: '+40% damage dealt, -30% max HP',
+            mods: { damageMultiplier: 1.4, hpMultiplier: 0.7 },
+          },
+        },
+        {
+          id: 'juggernaut', angleOffset: 22, steps: defenseModSteps('armourGlobalPct', 'Armour', 15, 1),
+          keystone: {
+            name: 'Juggernaut',
+            description: '+120% Total Armour, -15% Attack Speed',
+            mods: { armourGlobalPct: 1.2, speedMultiplierBonus: -0.15 },
+          },
+        },
+      ],
+    },
+  },
   { id: 'vit', angle: -18, steps: statSteps('vitality', 2, 4) },
-  { id: 'int', angle: 54, steps: statSteps('intelligence', 2, 4) },
-  { id: 'dex', angle: 126, steps: statSteps('dexterity', 2, 4) },
+  {
+    id: 'int', angle: 54, steps: statSteps('intelligence', 2, 3),
+    fork: {
+      branches: [
+        {
+          id: 'overcharge', angleOffset: -22, steps: defenseModSteps('barrierGlobalPct', 'Barrier', 15, 1),
+          keystone: {
+            name: 'Overcharge',
+            description: '+150% Total Barrier, -25% max HP',
+            mods: { barrierGlobalPct: 1.5, hpMultiplier: 0.75 },
+          },
+        },
+        {
+          id: 'mindward', angleOffset: 22, steps: defenseModSteps('barrierGlobalPct', 'Barrier', 15, 1),
+          keystone: {
+            name: 'Mind Ward',
+            description: '+60% Total Barrier, +60% Total Evasion, -20% max Mana',
+            mods: { barrierGlobalPct: 0.6, evasionGlobalPct: 0.6, manaMultiplier: 0.8 },
+          },
+        },
+      ],
+    },
+  },
+  {
+    id: 'dex', angle: 126, steps: [...statSteps('dexterity', 2, 4), ...defenseModSteps('evasionGlobalPct', 'Evasion', 15, 1)],
+    keystone: {
+      name: 'Phase Skin',
+      description: '+120% Total Evasion, -25% max HP',
+      mods: { evasionGlobalPct: 1.2, hpMultiplier: 0.75 },
+    },
+  },
   { id: 'rar', angle: 198, steps: statSteps('rarity', 2, 4) },
 ]);
 

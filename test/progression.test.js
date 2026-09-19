@@ -46,7 +46,7 @@ test('progression: XP, leveling, and both trees', async (t) => {
     assert.equal(prog.allocateNode('player', 'str1'), false); // already allocated
     // spend down to 0 to test the insufficient-points path
     while (prog.getAvailablePoints('player') > 0) {
-      const next = ['str2', 'str3', 'str4', 'vit1', 'int1', 'dex1', 'rar1'].find((id) => prog.canAllocate('player', id));
+      const next = ['str2', 'str3', 'vit1', 'int1', 'dex1', 'rar1'].find((id) => prog.canAllocate('player', id));
       if (!next) break;
       prog.allocateNode('player', next);
     }
@@ -54,17 +54,22 @@ test('progression: XP, leveling, and both trees', async (t) => {
     assert.equal(prog.canAllocate('player', 'vit2') || prog.canAllocate('player', 'int2'), false);
   });
 
-  await t.test("Berserker's Heart keystone contributes damage/HP multipliers once fully allocated", () => {
+  await t.test("Berserker's Heart keystone contributes damage/HP multipliers once fully allocated (STR forks into Berserker's Heart vs Juggernaut)", () => {
     prog.addXp(10000); // plenty of points to finish the STR spoke + keystone
     prog.allocateNode('player', 'str2');
     prog.allocateNode('player', 'str3');
-    prog.allocateNode('player', 'str4');
-    assert.equal(prog.canAllocate('player', 'str_keystone'), true);
-    assert.equal(prog.allocateNode('player', 'str_keystone'), true);
+    assert.equal(prog.canAllocate('player', 'str_berserker1'), true);
+    assert.equal(prog.allocateNode('player', 'str_berserker1'), true);
+    assert.equal(prog.canAllocate('player', 'str_berserker_keystone'), true);
+    assert.equal(prog.allocateNode('player', 'str_berserker_keystone'), true);
 
     const mods = prog.getPlayerKeystoneMods();
     assert.equal(mods.damageMultiplier, 1.4);
     assert.equal(mods.hpMultiplier, 0.7);
+
+    // The fork's other path (Juggernaut) is still reachable independently --
+    // taking one keystone doesn't lock out the other, just costs more points.
+    assert.equal(prog.canAllocate('player', 'str_juggernaut1'), true);
   });
 
   await t.test('resetTree refunds every spent point and clears allocation', () => {
@@ -75,6 +80,52 @@ test('progression: XP, leveling, and both trees', async (t) => {
     assert.equal(prog.getPlayerKeystoneMods().damageMultiplier, 1); // keystone effect gone
     assert.ok(spentBefore > 0); // sanity: there was actually something to refund
     assert.equal(prog.getAvailablePoints('player') > availableBefore, true);
+  });
+
+  await t.test('defence branch nodes/keystones (Armour/Evasion/Barrier) feed into getDefenseStats as global %, stacking multiplicatively with each other', () => {
+    prog.addXp(1000000); // plenty of points for both the INT and DEX paths below
+    assert.ok(prog.getAvailablePoints('player') >= 20, 'expected plenty of banked points');
+
+    // INT -> Overcharge fork (Barrier)
+    prog.allocateNode('player', 'int1');
+    prog.allocateNode('player', 'int2');
+    prog.allocateNode('player', 'int3');
+    assert.equal(prog.allocateNode('player', 'int_overcharge1'), true); // +15% Total Barrier
+    assert.equal(prog.allocateNode('player', 'int_overcharge_keystone'), true); // +150% Barrier, -25% HP
+
+    const afterOvercharge = prog.getPlayerDefenseBonuses();
+    assert.ok(Math.abs(afterOvercharge.barrierGlobalPct - (0.15 + 1.5)) < 1e-9);
+    assert.equal(afterOvercharge.armourGlobalPct, 0);
+    assert.equal(prog.getPlayerKeystoneMods().hpMultiplier, 0.75);
+
+    // DEX -> Phase Skin (Evasion), a single keystone at the end of the
+    // trunk rather than a fork -- the "mix" the tree now has.
+    prog.allocateNode('player', 'dex1');
+    prog.allocateNode('player', 'dex2');
+    prog.allocateNode('player', 'dex3');
+    prog.allocateNode('player', 'dex4');
+    assert.equal(prog.allocateNode('player', 'dex5'), true); // +15% Total Evasion
+    assert.equal(prog.allocateNode('player', 'dex_keystone'), true); // +120% Evasion, -25% HP
+
+    const finalBonuses = prog.getPlayerDefenseBonuses();
+    assert.ok(Math.abs(finalBonuses.evasionGlobalPct - (0.15 + 1.2)) < 1e-9);
+    assert.ok(Math.abs(finalBonuses.barrierGlobalPct - (0.15 + 1.5)) < 1e-9); // unchanged by the DEX branch
+
+    // Two HP-reducing keystones (Overcharge + Phase Skin) stack
+    // MULTIPLICATIVELY now that more than one can be held at once, not by
+    // the old single-keystone overwrite semantics.
+    assert.ok(Math.abs(prog.getPlayerKeystoneMods().hpMultiplier - 0.75 * 0.75) < 1e-9);
+
+    // With no gear equipped at all, getDefenseStats is purely attribute
+    // contribution scaled by these talent-tree global percentages.
+    const defense = inv.getDefenseStats();
+    const stats = inv.getTotalStats();
+    const expectedBarrier = stats.intelligence * 3 * (1 + finalBonuses.barrierGlobalPct);
+    const expectedEvasion = stats.dexterity * 2 * (1 + finalBonuses.evasionGlobalPct);
+    assert.ok(Math.abs(defense.barrierCapacity - expectedBarrier) < 1e-6);
+    assert.ok(Math.abs(defense.evasion - expectedEvasion) < 1e-6);
+
+    prog.resetTree('player'); // leave a clean slate for the Overrun test below
   });
 
   await t.test('Overrun keystone (mapping tree) combines a stat bonus with map modifiers', () => {
