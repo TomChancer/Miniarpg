@@ -40,7 +40,9 @@
     <h1>Map</h1>
     <div id="map-sigil-bar" class="map-sigil-bar"></div>
     <div id="map-pending-mods" class="map-pending-mods"></div>
-    <div id="map-tree-list" class="map-tree-list"></div>
+    <div id="map-tree-viewport" class="map-tree-viewport">
+      <canvas id="map-tree-canvas"></canvas>
+    </div>
   </section>
 
   <section id="inventory-screen" class="screen">
@@ -102,6 +104,16 @@
         <button id="talent-modal-close" class="icon-btn">&times;</button>
       </div>
       <div id="talent-modal-body"></div>
+    </div>
+  </div>
+
+  <div id="map-modal" class="modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="map-modal-title">Map</h2>
+        <button id="map-modal-close" class="icon-btn">&times;</button>
+      </div>
+      <div id="map-modal-body"></div>
     </div>
   </div>
 

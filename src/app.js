@@ -33,7 +33,7 @@ import { itemValue, itemDefenseBreakdown } from './loot.js';
 import { armourMitigation, evasionChance } from './defense.js';
 import { getAvailableNpcs } from './npcs.js';
 import { getStock, refreshStock, removeFromStock } from './merchant.js';
-import { MAPS, MAP_IDS, ROOT_MAP_ID, getMapDef, getMapToughnessBasePct } from './maps.js';
+import { MAPS, MAP_TREE_SIZE, getMapDef, getMapToughnessBasePct } from './maps.js';
 import { isUnlocked, isCleared, markCleared } from './mapProgress.js';
 import {
   getLevel,
@@ -164,12 +164,17 @@ const victoryEarnedEl = document.getElementById('victory-earned');
 const victoryItemsEl = document.getElementById('victory-items');
 const mapSigilBarEl = document.getElementById('map-sigil-bar');
 const mapPendingModsEl = document.getElementById('map-pending-mods');
-const mapTreeListEl = document.getElementById('map-tree-list');
+const mapTreeViewport = document.getElementById('map-tree-viewport');
+const mapTreeCanvas = document.getElementById('map-tree-canvas');
+const mapModal = document.getElementById('map-modal');
+const mapModalTitle = document.getElementById('map-modal-title');
+const mapModalBody = document.getElementById('map-modal-body');
 
 let scene = null;
 let currentModalItem = null;
 let activeTalentTree = 'player';
 let hasCenteredTalentView = false;
+let hasCenteredMapView = false;
 
 const TREE_CANVAS_SIZE = 800;
 const TREE_CENTER = TREE_CANVAS_SIZE / 2;
@@ -921,7 +926,7 @@ document.getElementById('talents-back').addEventListener('click', () => showScre
 function renderMapScreen() {
   renderMapSigilBar();
   renderMapPendingMods();
-  renderMapTreeList();
+  drawMapTree();
 }
 
 function renderMapSigilBar() {
@@ -946,30 +951,107 @@ function renderMapPendingMods() {
     .join('');
 }
 
-function renderMapTreeList() {
-  mapTreeListEl.innerHTML = '';
-  MAP_IDS.forEach((mapId, idx) => {
-    if (idx > 0) {
-      const connector = document.createElement('div');
-      connector.className = `map-tree-connector${isUnlocked(mapId) ? ' unlocked' : ''}`;
-      mapTreeListEl.appendChild(connector);
+const MAP_NODE_RADIUS = 26;
+
+// Same idea as drawTalentTree: a <canvas> the player pans/scrolls, with
+// nodes positioned directly in canvas pixel space (maps.js's x/y, no center
+// offset needed since the tree is a top-down web rather than a radial one).
+function drawMapTree() {
+  const dpr = window.devicePixelRatio || 1;
+  mapTreeCanvas.width = MAP_TREE_SIZE.width * dpr;
+  mapTreeCanvas.height = MAP_TREE_SIZE.height * dpr;
+  mapTreeCanvas.style.width = `${MAP_TREE_SIZE.width}px`;
+  mapTreeCanvas.style.height = `${MAP_TREE_SIZE.height}px`;
+  const ctx = mapTreeCanvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, MAP_TREE_SIZE.width, MAP_TREE_SIZE.height);
+
+  ctx.lineWidth = 3;
+  const seenEdges = new Set();
+  for (const map of Object.values(MAPS)) {
+    for (const otherId of map.connections) {
+      const key = [map.id, otherId].sort().join('|');
+      if (seenEdges.has(key)) continue;
+      seenEdges.add(key);
+      const other = getMapDef(otherId);
+      const bothUnlocked = isUnlocked(map.id) && isUnlocked(otherId);
+      ctx.strokeStyle = bothUnlocked ? 'rgba(216,176,84,0.7)' : 'rgba(255,255,255,0.15)';
+      ctx.beginPath();
+      ctx.moveTo(map.x, map.y);
+      ctx.lineTo(other.x, other.y);
+      ctx.stroke();
     }
-    const def = getMapDef(mapId);
-    const unlocked = isUnlocked(mapId);
-    const cleared = isCleared(mapId);
-    const toughnessPct = getMapToughnessBasePct(mapId);
-    const card = document.createElement('div');
-    card.className = `map-tree-card${cleared ? ' cleared' : ''}${unlocked ? ' unlocked' : ' locked'}`;
-    const subLine = !unlocked ? 'Locked' : toughnessPct > 0 ? `+${toughnessPct}% difficulty` : 'Base difficulty';
-    card.innerHTML = `
-      <div class="tier-label">Tier ${def.tier}</div>
-      <div class="biome-name">${def.name}</div>
-      <div class="biome-sub">${subLine}</div>
-    `;
-    if (unlocked) card.addEventListener('click', () => startCombat(mapId));
-    mapTreeListEl.appendChild(card);
-  });
+  }
+
+  for (const map of Object.values(MAPS)) {
+    const unlocked = isUnlocked(map.id);
+    const cleared = isCleared(map.id);
+    ctx.beginPath();
+    ctx.arc(map.x, map.y, MAP_NODE_RADIUS, 0, Math.PI * 2);
+    if (cleared) ctx.fillStyle = '#2f6e4f';
+    else if (unlocked) ctx.fillStyle = '#3a2e52';
+    else ctx.fillStyle = '#1a1428';
+    ctx.fill();
+    ctx.strokeStyle = cleared ? '#59d68c' : unlocked ? '#d8b054' : 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.fillStyle = unlocked ? '#f2ead9' : 'rgba(255,255,255,0.35)';
+    ctx.font = '600 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`T${map.tier}`, map.x, map.y);
+  }
 }
+
+function mapNodeAt(x, y) {
+  for (const map of Object.values(MAPS)) {
+    const dx = map.x - x;
+    const dy = map.y - y;
+    if (dx * dx + dy * dy <= (MAP_NODE_RADIUS + 8) * (MAP_NODE_RADIUS + 8)) return map;
+  }
+  return null;
+}
+
+mapTreeCanvas.addEventListener('click', (e) => {
+  const rect = mapTreeCanvas.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width) * MAP_TREE_SIZE.width;
+  const y = ((e.clientY - rect.top) / rect.height) * MAP_TREE_SIZE.height;
+  const map = mapNodeAt(x, y);
+  if (map) openMapModal(map);
+});
+
+function openMapModal(def) {
+  const unlocked = isUnlocked(def.id);
+  const cleared = isCleared(def.id);
+  const toughnessPct = getMapToughnessBasePct(def.id);
+
+  mapModalTitle.textContent = def.name;
+
+  let body = `<div class="gem-desc">Tier ${def.tier} &middot; ${toughnessPct > 0 ? `+${toughnessPct}% difficulty` : 'Base difficulty'}</div>`;
+  if (cleared) body += `<div class="gem-desc">Cleared</div>`;
+
+  if (unlocked) {
+    body += `<button class="gem-action" id="map-enter">Enter</button>`;
+  } else {
+    body += `<div class="gem-desc req-unmet">Locked &mdash; clear a connected map first</div>`;
+  }
+
+  mapModalBody.innerHTML = body;
+  mapModal.classList.add('active');
+
+  const enterBtn = document.getElementById('map-enter');
+  if (enterBtn) {
+    enterBtn.addEventListener('click', () => {
+      mapModal.classList.remove('active');
+      startCombat(def.id);
+    });
+  }
+}
+
+document.getElementById('map-modal-close').addEventListener('click', () => {
+  mapModal.classList.remove('active');
+});
 
 // --- combat ---
 
@@ -1035,6 +1117,13 @@ function startCombat(mapId) {
 document.getElementById('town-set-out').addEventListener('click', () => {
   renderMapScreen();
   showScreen('map');
+  if (!hasCenteredMapView) {
+    hasCenteredMapView = true;
+    requestAnimationFrame(() => {
+      mapTreeViewport.scrollLeft = MAPS.ashen_grove.x - mapTreeViewport.clientWidth / 2;
+      mapTreeViewport.scrollTop = 0;
+    });
+  }
 });
 document.getElementById('town-inventory').addEventListener('click', () => {
   refreshInventoryScreen();
