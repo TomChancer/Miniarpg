@@ -48,3 +48,25 @@ test('supportsFor returns an empty list when nothing matches', () => {
   const meleeOnlySupport = { id: 'support_momentum', appliesToTags: ['melee'], mods: {} };
   assert.deepEqual(supportsFor(cinderShot, [meleeOnlySupport]), []);
 });
+
+test("resolveSkill scales an aura's manaCostPerSec/manaReservePct by manaCostMultiplier, on top of the normal manaCost field", () => {
+  const farReach = { id: 'support_far_reach', appliesToTags: ['aura'], mods: { areaMultiplier: 1.5, manaCostMultiplier: 1.3 } };
+
+  const pulseAura = { id: 'ember_aura', tags: ['attack', 'area', 'aura'], speed: 2, manaCost: 0, manaCostPerSec: 10 };
+  const resolvedPulse = resolveSkill(pulseAura, [farReach]);
+  assert.ok(Math.abs(resolvedPulse.manaCostPerSec - 13) < 1e-9);
+  assert.equal(resolvedPulse.areaMultiplier, 1.5);
+  assert.equal(resolvedPulse.manaReservePct, undefined); // never had one to begin with
+
+  const repulseAura = { id: 'repulse_aura', tags: ['area', 'aura'], speed: 1, manaCost: 0, manaReservePct: 50 };
+  const resolvedRepulse = resolveSkill(repulseAura, [farReach]);
+  assert.ok(Math.abs(resolvedRepulse.manaReservePct - 65) < 1e-9);
+  assert.equal(resolvedRepulse.manaCostPerSec, undefined);
+});
+
+test('a non-aura skill with no manaCostPerSec/manaReservePct fields is unaffected by that scaling', () => {
+  const addedMightOnly = { id: 'support_added_might', appliesToTags: ['attack'], mods: { manaCostMultiplier: 1.3 } };
+  const resolved = resolveSkill(cinderShot, [addedMightOnly]);
+  assert.equal(resolved.manaCostPerSec, undefined);
+  assert.equal(resolved.manaReservePct, undefined);
+});

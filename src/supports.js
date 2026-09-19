@@ -61,6 +61,17 @@ export const SUPPORT_GEMS = [
     cost: 16,
     currency: 'voidShard',
   },
+  {
+    id: 'support_far_reach',
+    name: 'Far Reach Support',
+    description: 'Bigger range, but costs more to sustain -- faster mana drain on a pulsing aura, more mana reserved on an automatic one. Aura skills only.',
+    gemType: 'support',
+    appliesToTags: ['aura'],
+    mods: { areaMultiplier: 1.5, manaCostMultiplier: 1.3 },
+    requirement: { stat: 'dexterity', value: 8 },
+    cost: 18,
+    currency: 'voidShard',
+  },
 ];
 
 export function getSupportById(id) {

@@ -19,10 +19,20 @@ export function resolveSkill(baseDef, supports) {
     if (mods.projectileCountAdd) projectileCountAdd += mods.projectileCountAdd;
   }
 
+  // Auras don't pay their cost through the normal per-cast manaCost field
+  // (see combat.js's _updatePulseAura/_updateRepulseAura) -- manaCostMultiplier
+  // scales whichever of these two aura-only cost fields the base def actually
+  // has, same "costs more" tradeoff Added Might/Widening etc. already apply
+  // to a regular manaCost. Absent on non-aura skills, so this is a no-op there.
+  const auraCostFields = {};
+  if (baseDef.manaCostPerSec != null) auraCostFields.manaCostPerSec = baseDef.manaCostPerSec * manaCostMultiplier;
+  if (baseDef.manaReservePct != null) auraCostFields.manaReservePct = baseDef.manaReservePct * manaCostMultiplier;
+
   return {
     ...baseDef,
     speed: baseDef.speed * speedMultiplier,
     manaCost: Math.round(baseDef.manaCost * manaCostMultiplier),
+    ...auraCostFields,
     supportDamageMultiplier: damageMultiplier,
     areaMultiplier,
     projectileCount: 1 + projectileCountAdd,

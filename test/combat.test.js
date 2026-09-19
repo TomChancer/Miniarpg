@@ -509,3 +509,58 @@ test('Repulse Aura reserves half of max mana at start, and knocks enemies back o
   assert.ok(enemy.knockbackVx > 0); // pushed further toward +x, where it was standing
   assert.equal(scene.auras[0].timer, scene.auras[0].def.cooldown);
 });
+
+test("Far Reach Support widens Ember Aura's pulse radius and drains mana faster, linked in the same item", () => {
+  clearBag();
+  clearGear();
+  inv.addLootItem({ kind: 'equipment', defId: 'staff', w: 1, h: 4, sockets: new Array(6).fill(null), affixes: { intelligence: 40, dexterity: 8 } });
+  const staff = inv.getGeneralGrid().items.find((i) => i.defId === 'staff' && i.affixes.intelligence === 40 && i.affixes.dexterity === 8);
+  assert.equal(inv.equipItem(staff.instanceId, 'weapon'), true);
+  inv.addGem('ember_aura');
+  inv.addGem('support_far_reach');
+  assert.equal(inv.socketGem('weapon', 0, 'ember_aura'), true);
+  assert.equal(inv.socketGem('weapon', 1, 'support_far_reach'), true);
+
+  const scene = makeScene();
+  const ember = scene.auras.find((a) => a.def.id === 'ember_aura').def;
+  assert.deepEqual(ember.appliedSupportIds, ['support_far_reach']);
+  assert.equal(ember.areaMultiplier, 1.5);
+  assert.ok(Math.abs(ember.manaCostPerSec - 13) < 1e-9); // base 10 * 1.3
+
+  const enemyAtBaseRange = new Enemy(scene.character.x + 120, scene.character.y, 1, 'husk'); // beyond the un-widened 110 range
+  enemyAtBaseRange.hp = 1000000;
+  scene.enemies = [enemyAtBaseRange];
+  scene.character.mana = scene.character.maxMana;
+  const auraState = scene.auras.find((a) => a.def.id === 'ember_aura');
+  auraState.timer = 0; // force a pulse this tick
+  scene._updatePulseAura(auraState, 0.01);
+  assert.ok(enemyAtBaseRange.hp < 1000000, 'expected the widened radius to reach an enemy just past the base range');
+});
+
+test("Far Reach Support widens Repulse Aura's knockback radius and reserves more mana, linked in the same item", () => {
+  clearBag();
+  clearGear();
+  inv.addLootItem({ kind: 'equipment', defId: 'chest_armour', w: 2, h: 3, sockets: [null, null], affixes: { vitality: 15, dexterity: 8 } });
+  const chest = inv.getGeneralGrid().items.find((i) => i.defId === 'chest_armour' && i.affixes.vitality === 15 && i.affixes.dexterity === 8);
+  assert.equal(inv.equipItem(chest.instanceId), true);
+  inv.addGem('repulse_aura');
+  inv.addGem('support_far_reach');
+  assert.equal(inv.socketGem('chest', 0, 'repulse_aura'), true);
+  assert.equal(inv.socketGem('chest', 1, 'support_far_reach'), true);
+
+  const scene = makeScene();
+  const repulse = scene.auras.find((a) => a.def.id === 'repulse_aura').def;
+  assert.deepEqual(repulse.appliedSupportIds, ['support_far_reach']);
+  assert.equal(repulse.areaMultiplier, 1.5);
+  assert.ok(Math.abs(repulse.manaReservePct - 65) < 1e-9); // base 50 * 1.3
+
+  const unreserved = 20 + inv.getTotalStats().intelligence * 6;
+  assert.ok(Math.abs(scene.character.maxMana - unreserved * 0.35) < 1e-6); // 1 - 65%
+
+  const enemyAtBaseRange = new Enemy(scene.character.x + 120, scene.character.y, 1, 'husk'); // beyond the un-widened 100 range
+  scene.enemies = [enemyAtBaseRange];
+  const auraState = scene.auras.find((a) => a.def.id === 'repulse_aura');
+  auraState.timer = 0; // force a trigger this tick
+  scene._updateRepulseAura(auraState, 0.01);
+  assert.ok(enemyAtBaseRange.knockbackTimer > 0, 'expected the widened radius to reach an enemy just past the base range');
+});
