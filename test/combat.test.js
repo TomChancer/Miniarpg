@@ -7,6 +7,14 @@ import { Enemy } from '../src/entities.js';
 import * as inv from '../src/inventory.js';
 import { getGemById, PUNCH_SKILL } from '../src/gems.js';
 
+// A handful of tests below need a clean bag to reliably place larger/taller
+// shapes (e.g. a 1x4 staff) — earlier tests in this file leave it fragmented
+// with leftover swapped-out gear, same idea as inventory.test.js's gem-pouch
+// tests owning their own grid state.
+function clearBag() {
+  for (const it of [...inv.getGeneralGrid().items]) inv.discardItem('general', it.instanceId);
+}
+
 function makeScene(callbackOverrides = {}) {
   const scene = new CombatScene(makeFakeCanvas(), {
     onHpChange() {}, onWaveChange() {}, onCurrencyChange() {}, onManaChange() {},
@@ -29,6 +37,20 @@ test('a fresh character (zero gear) can still kill with Punch alone', () => {
   const fired = scene._castSkill(PUNCH_SKILL);
   assert.equal(fired, true);
   assert.ok(enemy.hp <= 0);
+});
+
+test('Punch steps aside the instant a real skill gem is socketed, so it never fires alongside one', () => {
+  clearBag();
+  inv.addLootItem({ kind: 'equipment', defId: 'helmet', w: 2, h: 2, sockets: [null], affixes: { intelligence: 20 } });
+  const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet' && i.affixes.intelligence === 20);
+  assert.equal(inv.equipItem(helmet.instanceId), true);
+  inv.addGem('cinder_shot');
+  assert.equal(inv.socketGem('helmet', 0, 'cinder_shot'), true);
+
+  const scene = makeScene();
+  assert.equal(scene.skills.length, 1);
+  assert.equal(scene.skills[0].def.id, 'cinder_shot');
+  assert.ok(scene.skills.every((s) => s.def.id !== 'punch'));
 });
 
 test('currency drop rolls are deterministic given a fixed RNG sequence', () => {
@@ -86,7 +108,7 @@ test('each skill kind produces its expected effect, gated by mana', () => {
   }
 
   const scene = makeScene();
-  assert.equal(scene.skills.length, 4); // punch + the 3 socketed gems
+  assert.equal(scene.skills.length, 3); // the 3 socketed gems; Punch steps aside once real skills are socketed
 
   // projectile: Cinder Shot
   const projTarget = new Enemy(scene.character.x, scene.character.y - 50, 1, 'husk');
@@ -157,6 +179,7 @@ test('weapon type scales non-innate skill range but never Punch', () => {
 });
 
 test('support gems only modify skill gems socketed in the SAME equipped item', () => {
+  clearBag();
   inv.addLootItem({ kind: 'equipment', defId: 'helmet', w: 2, h: 2, sockets: [null, null], affixes: { intelligence: 97 } });
   inv.addLootItem({ kind: 'equipment', defId: 'chest', w: 2, h: 3, sockets: [null, null], affixes: { strength: 97 } });
   inv.addLootItem({ kind: 'equipment', defId: 'legs', w: 2, h: 2, sockets: [null], affixes: { vitality: 1 } });
@@ -183,7 +206,7 @@ test('support gems only modify skill gems socketed in the SAME equipped item', (
   assert.equal(inv.socketGem('legs', 0, 'support_momentum'), true);
 
   const scene = makeScene();
-  assert.equal(scene.skills.length, 3); // punch + cinder_shot + crush (supports never fire on their own)
+  assert.equal(scene.skills.length, 2); // cinder_shot + crush; supports never fire on their own, Punch steps aside
 
   const cinderShotSkill = scene.skills.find((s) => s.def.id === 'cinder_shot').def;
   assert.equal(cinderShotSkill.supportDamageMultiplier, 1.25);
@@ -195,6 +218,7 @@ test('support gems only modify skill gems socketed in the SAME equipped item', (
 });
 
 test('Volley Support adds a real extra projectile to the actual cast', () => {
+  clearBag();
   inv.addLootItem({ kind: 'equipment', defId: 'helmet', w: 2, h: 2, sockets: [null, null], affixes: { intelligence: 55 } });
   const helmet = inv.getGeneralGrid().items.find((i) => i.defId === 'helmet' && i.affixes.intelligence === 55);
   assert.equal(inv.equipItem(helmet.instanceId), true);
@@ -215,6 +239,7 @@ test('Volley Support adds a real extra projectile to the actual cast', () => {
 });
 
 test('Cinder Nova hits every enemy within its radius and ignores enemies far outside it', () => {
+  clearBag(); // a tall 1x4 shape needs a clean grid; earlier tests leave it fragmented
   inv.addLootItem({ kind: 'equipment', defId: 'staff', w: 1, h: 4, sockets: new Array(6).fill(null), affixes: { intelligence: 30 } });
   const staff = inv.getGeneralGrid().items.find((i) => i.defId === 'staff');
   assert.equal(inv.equipItem(staff.instanceId, 'weapon'), true);

@@ -78,7 +78,9 @@ export class CombatScene {
         resolvedSkills.push(resolveSkill(skillDef, supportsFor(skillDef, supportsInGroup)));
       }
     }
-    const skillDefs = [PUNCH_SKILL, ...resolvedSkills];
+    // Punch is a zero-gear fallback, not an extra attack: once any real
+    // skill gem is socketed, it takes over and Punch stops firing.
+    const skillDefs = resolvedSkills.length > 0 ? resolvedSkills : [PUNCH_SKILL];
     this.skills = skillDefs.map((def) => ({
       def,
       timer: Math.random() * (1 / (def.speed * this.speedMultiplier)),
