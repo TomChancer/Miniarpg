@@ -11,6 +11,7 @@ import {
   pickMissingType,
   rollOneAffix,
   itemValue,
+  itemDefenseBreakdown,
 } from '../src/loot.js';
 import { BASE_ITEM_IDS, getBaseItem } from '../src/equipment.js';
 
@@ -148,4 +149,34 @@ test('itemValue grows with sockets and affix count', () => {
   const affixed = { sockets: [], affixes: { strength: 5, vitality: 5 } };
   assert.ok(itemValue(socketed) > itemValue(bare));
   assert.ok(itemValue(affixed) > itemValue(bare));
+});
+
+test('itemDefenseBreakdown computes local base+flat*(1+pct) math for armor pieces', () => {
+  const bare = { defId: 'chest', affixes: {} };
+  const bareBreakdown = itemDefenseBreakdown(bare);
+  // Chest's intrinsic armour/evasion baseline still shows up with no affixes at all.
+  assert.equal(bareBreakdown.armour.kind, 'local');
+  assert.equal(bareBreakdown.armour.total, getBaseItem('chest').defenseBase.armour);
+  assert.equal(bareBreakdown.evasion.total, getBaseItem('chest').defenseBase.evasion);
+  // No intrinsic Barrier baseline, and no barrier affix rolled -> omitted entirely.
+  assert.equal('barrier' in bareBreakdown, false);
+
+  const rolled = { defId: 'chest', affixes: { armourFlat: 4, armourPct: 0.2, barrierFlat: 5 } };
+  const breakdown = itemDefenseBreakdown(rolled);
+  const chestBase = getBaseItem('chest').defenseBase;
+  assert.equal(breakdown.armour.total, (chestBase.armour + 4) * 1.2);
+  assert.equal(breakdown.barrier.kind, 'local');
+  assert.equal(breakdown.barrier.total, 0 + 5); // no intrinsic base, no pct -- pure flat
+});
+
+test('itemDefenseBreakdown reports jewelry global % prefixes distinctly from local ones', () => {
+  const ring = { defId: 'ring', affixes: { armourGlobalPct: 0.08 } };
+  const breakdown = itemDefenseBreakdown(ring);
+  assert.deepEqual(breakdown.armour, { kind: 'global', pct: 0.08 });
+  assert.equal('evasion' in breakdown, false);
+});
+
+test('itemDefenseBreakdown is empty for an item with no defensive contribution at all', () => {
+  const plainRing = { defId: 'ring', affixes: { strength: 3 } };
+  assert.deepEqual(itemDefenseBreakdown(plainRing), {});
 });

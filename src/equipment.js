@@ -35,22 +35,27 @@ export const SLOT_CATEGORY = {
 // Local defensive prefixes (flat + %) roll only on armor-slot pieces
 // (helmet/chest/legs -- never weapons) and scale that SAME piece's own
 // `defenseBase` value: (defenseBase + flat) * (1 + pct). Every armor piece
-// gets a small amount of all three defence types per the current one-item-
-// per-slot design; DEFENSE_PREFIXES is shared by all three so a future new
-// base item just needs its own `defenseBase` + this same block.
+// gets a small intrinsic amount of Armour and Evasion (per the current
+// one-item-per-slot design), but no intrinsic Barrier -- Barrier only comes
+// from Intelligence's own contribution (see inventory.js) and rolled
+// affixes, never as a free baseline. Since local barrier has no base to
+// scale, it only gets a flat prefix (a local "% increased Barrier" would
+// multiply zero); Barrier's own % scaling instead lives on jewelry's
+// GLOBAL prefix, which multiplies the intelligence-derived total instead.
+// DEFENSE_PREFIXES is shared by all three armor pieces so a future new base
+// item just needs its own `defenseBase` + this same block.
 const DEFENSE_PREFIXES = [
   { stat: 'armourFlat', min: 2, max: 5, type: 'prefix' },
   { stat: 'armourPct', min: 8, max: 15, type: 'prefix' },
   { stat: 'evasionFlat', min: 2, max: 5, type: 'prefix' },
   { stat: 'evasionPct', min: 8, max: 15, type: 'prefix' },
-  { stat: 'barrierFlat', min: 2, max: 5, type: 'prefix' },
-  { stat: 'barrierPct', min: 8, max: 15, type: 'prefix' },
+  { stat: 'barrierFlat', min: 3, max: 7, type: 'prefix' },
 ];
 
 export const BASE_ITEMS = {
   helmet: {
     id: 'helmet', name: 'Helmet', slotCategory: 'helmet', shape: { w: 2, h: 2 }, socketCap: 4,
-    defenseBase: { armour: 2, evasion: 2, barrier: 5 },
+    defenseBase: { armour: 2, evasion: 2, barrier: 0 },
     statPool: [
       { stat: 'intelligence', min: 2, max: 5, type: 'prefix' }, { stat: 'intelligence', min: 2, max: 5, type: 'prefix' },
       { stat: 'vitality', min: 1, max: 3, type: 'prefix' },
@@ -61,7 +66,7 @@ export const BASE_ITEMS = {
   },
   chest: {
     id: 'chest', name: 'Chestplate', slotCategory: 'chest', shape: { w: 2, h: 3 }, socketCap: 6,
-    defenseBase: { armour: 5, evasion: 2, barrier: 2 },
+    defenseBase: { armour: 5, evasion: 2, barrier: 0 },
     statPool: [
       { stat: 'strength', min: 2, max: 5, type: 'prefix' }, { stat: 'strength', min: 2, max: 5, type: 'prefix' },
       { stat: 'vitality', min: 2, max: 5, type: 'prefix' }, { stat: 'vitality', min: 2, max: 5, type: 'prefix' },
@@ -72,7 +77,7 @@ export const BASE_ITEMS = {
   },
   legs: {
     id: 'legs', name: 'Leggings', slotCategory: 'legs', shape: { w: 2, h: 2 }, socketCap: 4,
-    defenseBase: { armour: 2, evasion: 5, barrier: 2 },
+    defenseBase: { armour: 2, evasion: 5, barrier: 0 },
     statPool: [
       { stat: 'dexterity', min: 2, max: 5, type: 'prefix' }, { stat: 'dexterity', min: 2, max: 5, type: 'prefix' },
       { stat: 'vitality', min: 1, max: 3, type: 'prefix' },

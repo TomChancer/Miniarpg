@@ -6,7 +6,9 @@ const VALID_CATEGORIES = ['helmet', 'chest', 'legs', 'ring', 'amulet', 'trinket'
 const ARMOR_SLOT_IDS = ['helmet', 'chest', 'legs'];
 const JEWELRY_IDS = ['ring', 'amulet', 'trinket'];
 const WEAPON_IDS = ['sword_1h', 'sword_2h', 'staff', 'bow'];
-const LOCAL_DEFENSE_STATS = ['armourFlat', 'armourPct', 'evasionFlat', 'evasionPct', 'barrierFlat', 'barrierPct'];
+// barrierPct has no local counterpart: local barrier has no intrinsic base
+// to scale, so only a flat local bonus makes sense (see equipment.js).
+const LOCAL_DEFENSE_STATS = ['armourFlat', 'armourPct', 'evasionFlat', 'evasionPct', 'barrierFlat'];
 const GLOBAL_DEFENSE_STATS = ['armourGlobalPct', 'evasionGlobalPct', 'barrierGlobalPct'];
 const VALID_STATS = [
   'strength', 'vitality', 'intelligence', 'dexterity', 'rarity', 'attackSpeedPct',
@@ -38,9 +40,10 @@ test('defensive stats: armor-slot pieces have a defenseBase + local flat/% prefi
   for (const id of ARMOR_SLOT_IDS) {
     const item = getBaseItem(id);
     assert.ok(item.defenseBase, `${id} should have a defenseBase`);
-    for (const key of ['armour', 'evasion', 'barrier']) {
+    for (const key of ['armour', 'evasion']) {
       assert.ok(item.defenseBase[key] > 0, `${id}'s defenseBase.${key} should be a small positive baseline`);
     }
+    assert.equal(item.defenseBase.barrier, 0, `${id} should have no intrinsic Barrier baseline`);
     const stats = item.statPool.map((e) => e.stat);
     for (const stat of LOCAL_DEFENSE_STATS) assert.ok(stats.includes(stat), `${id} should be able to roll ${stat}`);
     for (const stat of GLOBAL_DEFENSE_STATS) assert.ok(!stats.includes(stat), `${id} should NOT roll the jewelry-only ${stat}`);

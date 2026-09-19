@@ -27,7 +27,7 @@ import {
 import { GEMS, getGemById } from './gems.js';
 import { SUPPORT_GEMS } from './supports.js';
 import { SLOTS, getBaseItem } from './equipment.js';
-import { itemValue } from './loot.js';
+import { itemValue, itemDefenseBreakdown } from './loot.js';
 import { armourMitigation, evasionChance } from './defense.js';
 import { getAvailableNpcs } from './npcs.js';
 import { getStock, refreshStock, removeFromStock } from './merchant.js';
@@ -54,7 +54,7 @@ const AFFIX_LABELS = {
   attackSpeedPct: 'Attack Speed',
   armourFlat: 'Armour', armourPct: 'Armour', armourGlobalPct: 'Total Armour',
   evasionFlat: 'Evasion', evasionPct: 'Evasion', evasionGlobalPct: 'Total Evasion',
-  barrierFlat: 'Barrier', barrierPct: 'Barrier', barrierGlobalPct: 'Total Barrier',
+  barrierFlat: 'Barrier', barrierGlobalPct: 'Total Barrier',
 };
 
 function requirementText(requirement) {
@@ -78,6 +78,29 @@ function affixesText(affixes) {
       return stat.endsWith('Pct') ? `+${Math.round(amount * 100)}% ${label}` : `+${amount} ${label}`;
     })
     .join(', ');
+}
+
+const DEFENSE_TYPE_LABELS = { armour: 'Armour', evasion: 'Evasion', barrier: 'Barrier' };
+
+// The math behind an item's defensive affixes, spelled out line by line --
+// e.g. "Armour: 2 base + 3 flat, x1.10 (+10%) = 5.5" -- rather than leaving
+// the player to work out (base + flat) * (1 + pct) from the flat affix list.
+function defenseBreakdownHtml(item) {
+  const breakdown = itemDefenseBreakdown(item);
+  const keys = Object.keys(breakdown);
+  if (keys.length === 0) return '<div class="gem-desc">No defensive stats</div>';
+  return keys
+    .map((key) => {
+      const label = DEFENSE_TYPE_LABELS[key];
+      const info = breakdown[key];
+      if (info.kind === 'global') {
+        return `<div class="gem-desc">${label}: +${Math.round(info.pct * 100)}% to Total ${label}</div>`;
+      }
+      const flatText = info.flat > 0 ? ` + ${info.flat} flat` : '';
+      const pctText = info.pct > 0 ? `, &times;${(1 + info.pct).toFixed(2)} (+${Math.round(info.pct * 100)}%)` : '';
+      return `<div class="gem-desc">${label}: ${info.base} base${flatText}${pctText} = ${info.total.toFixed(1)}</div>`;
+    })
+    .join('');
 }
 
 const screens = {
@@ -340,6 +363,10 @@ function renderMerchantShop() {
         <span class="gem-cost">${stockItem.price} ${CURRENCIES.cinderShard.name}</span>
       </div>
       <div class="gem-desc">${socketsNote}${affixesText(stockItem.affixes)}</div>
+      <details class="gear-details">
+        <summary>Defensive details</summary>
+        ${defenseBreakdownHtml(stockItem)}
+      </details>
       <button class="gem-action" data-buy-stock="${stockItem.stockId}" ${canAfford ? '' : 'disabled'}>Buy</button>
     `;
     shopItemsEl.appendChild(card);
@@ -489,6 +516,10 @@ function openItemModal(tabKind, item) {
     itemModalBody.innerHTML = `
       <div class="gem-desc">${socketsNote}</div>
       <div class="gem-desc">${affixesText(item.affixes)}</div>
+      <details class="gear-details">
+        <summary>Defensive details</summary>
+        ${defenseBreakdownHtml(item)}
+      </details>
       ${craftButtonsHtml(item)}
       ${equipButtons}
       <button class="gem-action" id="item-sell">Sell (${sellValue} ${CURRENCIES.cinderShard.name})</button>
@@ -651,6 +682,10 @@ function openEquippedModal(slot) {
   itemModalTitle.innerHTML = `${base.name} <span class="tier-tag tier-${item.tier}">${TIER_LABELS[item.tier]}</span>`;
   itemModalBody.innerHTML = `
     <div class="gem-desc">${affixesText(item.affixes)}</div>
+    <details class="gear-details">
+      <summary>Defensive details</summary>
+      ${defenseBreakdownHtml(item)}
+    </details>
     ${socketsHtml}
     <button class="gem-action" id="item-unequip">Unequip</button>
   `;

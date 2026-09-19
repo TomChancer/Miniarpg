@@ -643,6 +643,35 @@ button.secondary:active { transform: scale(0.97); }
 .gem-desc { font-size: 0.82rem; color: var(--text-dim); }
 .req-unmet { color: var(--hp-low); }
 
+.gear-details {
+  margin: 2px 0;
+  color: var(--text-dim);
+}
+
+.gear-details summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--gold);
+  list-style: none;
+}
+
+.gear-details summary::-webkit-details-marker { display: none; }
+
+.gear-details summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 5px;
+  transition: transform 0.15s;
+}
+
+.gear-details[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.gear-details .gem-desc {
+  padding: 4px 0 2px 14px;
+}
+
 .gem-action {
   align-self: flex-start;
   border: 1px solid var(--gold);

@@ -143,3 +143,27 @@ export function itemValue(item) {
   );
   return Math.max(10, Math.round(20 + socketValue + affixValue));
 }
+
+// A per-item defence breakdown, independent of the rest of the character's
+// gear — used by the shop/inventory "expand for details" view so the local
+// base+flat*(1+pct) math (or the jewelry global %) is visible up front
+// instead of buried in a flat affix list. Only includes a defence type this
+// specific item actually contributes to; an item with none returns {}.
+export function itemDefenseBreakdown(item) {
+  const base = getBaseItem(item.defId);
+  const breakdown = {};
+  for (const key of ['armour', 'evasion', 'barrier']) {
+    const globalPct = item.affixes?.[`${key}GlobalPct`];
+    if (base.defenseBase) {
+      const baseVal = base.defenseBase[key] || 0;
+      const flat = item.affixes?.[`${key}Flat`] || 0;
+      const pct = item.affixes?.[`${key}Pct`] || 0;
+      if (baseVal > 0 || flat > 0 || pct > 0) {
+        breakdown[key] = { kind: 'local', base: baseVal, flat, pct, total: (baseVal + flat) * (1 + pct) };
+      }
+    } else if (globalPct) {
+      breakdown[key] = { kind: 'global', pct: globalPct };
+    }
+  }
+  return breakdown;
+}
